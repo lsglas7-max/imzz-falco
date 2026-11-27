@@ -1,7 +1,8 @@
-.build/
 .gradle/
-local.properties
-output/
-*.iml
 .idea/
+local.properties
+**/build/
+*.iml
 .DS_Store
+proxy/.env
+proxy/node_modules/

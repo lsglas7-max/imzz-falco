@@ -154,11 +154,13 @@ class ScreenCaptureService : Service() {
                 if (file.exists()) file.delete()
                 temporary.renameTo(file)
             }
+            val scene = runCatching { SceneSummarizer.summarize(bitmap) }.getOrDefault("")
             OcrProcessor.recognize(bitmap) { text, layout ->
                 sendBroadcast(
                     Intent(ACTION_OCR_UPDATE).setPackage(packageName)
                         .putExtra("text", text)
                         .putExtra("layout", layout)
+                        .putExtra("scene", scene)
                         .putExtra("capturedAt", System.currentTimeMillis())
                 )
                 bitmap.recycle()

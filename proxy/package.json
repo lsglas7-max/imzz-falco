@@ -1,0 +1,10 @@
+{
+  "name": "skylen-vision-proxy",
+  "version": "1.0.0",
+  "description": "Proxy kecil: meneruskan screenshot dari app ASISTEN GALAXY IMZZ ke model AI yang bisa melihat gambar, dan mengembalikan satu aksi (tap/swipe/dll).",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test/smoke.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

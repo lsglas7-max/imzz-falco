@@ -85,3 +85,11 @@ Balas dengan salah satu bentuk ini (field pertama yang terisi dipakai):
 ## Endpoint teks (GET ?q=)
 
 URL yang mengandung `q=` (mis. `https://api.kyio.web.id/api/v2/ai/gpt-5?q=`) diperlakukan sebagai endpoint teks: prompt di-URL-encode lalu ditempel setelah `q=` dengan GET. Balasan boleh teks biasa atau JSON apa saja; app mengambil nilai teks pertama dari kunci `result, response, answer, reply, text, content, message, output, data, choices, candidates, parts`. Untuk Autopilot, prompt memuat tujuan, riwayat aksi, dan daftar "x,y teks" dari OCR; AI harus membalas satu objek JSON aksi.
+
+## Proxy (opsional)
+
+Request juga membawa `scene` (daftar objek mencolok dari app). Endpoint JSON (bukan `?q=`) yang diisi lewat `galaxyVisionApiUrl`. Memakai kontrak POST di atas (screenshot JPEG base64 + `ocrLayout`) dan mode `chat`. Implementasi siap pakai ada di folder `proxy/` (tanpa API key memakai 2 API kyio; dengan key vision meneruskan screenshot). Dicoba pertama untuk Autopilot; kalau gagal app pindah ke API #1 lalu #2.
+
+## Template vision (GET + link gambar)
+
+`galaxyVisionApiUrl` yang mengandung `{url}` diperlakukan sebagai API vision gaya kyio: `{q}` = prompt (URL-encoded), `{sid}` = id sesi acak per langkah, `{url}` = link publik screenshot hasil unggah ke host sementara. Balasan dibaca seperti endpoint teks (JSON aksi di dalam teks). Hanya dipakai kalau pengguna menyalakan Vision.
