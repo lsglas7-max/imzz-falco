@@ -408,50 +408,29 @@ def _ensure_import(source: str, fqcn: str) -> str:
 
 
 def patch_renderer_compatibility(app: Path) -> None:
-    """Best-effort renderer guard tolerant of upstream method/comment changes."""
+    """Keep the upstream renderer selection; remove the previous forced MobileGlues guard.
+
+    Renderer choice is device/driver-specific. Automatically replacing the saved GL4ES
+    choice with MobileGlues based only on a Sodium filename caused a black/magenta
+    rendering regression on some Mali devices. The upstream per-instance/global setting
+    remains authoritative. This patch is deliberately non-invasive.
+    """
     path = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt"
     src = require_file(path)
     marker = "IMZYY RENDERER COMPATIBILITY GUARD"
     if marker in src:
-        print("renderer compatibility: already applied")
-        return
-
-    guard = '''        // IMZYY RENDERER COMPATIBILITY GUARD
-        // Sodium/Embeddium require a modern OpenGL path; avoid GL4ES for this session.
-        val modsDirForRenderer = instanceDir?.let { File(it, "mods") }
-        val hasSodiumFamily = modsDirForRenderer?.listFiles()?.any { mod ->
-            mod.isFile && mod.name.endsWith(".jar", ignoreCase = true) &&
-                (mod.name.contains("sodium", ignoreCase = true) || mod.name.contains("embeddium", ignoreCase = true))
-        } == true
-        if (hasSodiumFamily && base.id in setOf("gl4es", "gl4es_desktop")) {
-            val previousRenderer = base.id
-            base = Renderer.fromId("mobileglues")
-            android.util.Log.w("FLAME_LAUNCHER", "IMZYY: Sodium/Embeddium + $previousRenderer; using MobileGlues for this session")
-        }
-'''
-
-    candidates = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)return\s+base\s*$", src))
-    selected = None
-    if len(candidates) == 1:
-        selected = candidates[0]
-    elif candidates:
-        for candidate in candidates:
-            prefix = src[:candidate.start()]
-            funcs = list(re.finditer(r"(?m)^\s*(?:(?:private|internal|protected|public|override)\s+)*fun\s+([A-Za-z0-9_]*[Rr]enderer[A-Za-z0-9_]*)\s*\([^)]*\)\s*:\s*Renderer\s*\{", prefix))
-            if funcs:
-                function = funcs[-1]
-                if src[function.end():candidate.start()].count("return base") == 1:
-                    selected = candidate
-                    break
-
-    if selected is None:
-        print("renderer compatibility: skipped (upstream renderer method changed); choose MobileGlues manually for Sodium")
-        return
-
-    indent = selected.group("indent")
-    src = src[:selected.start()] + guard + indent + "return base" + src[selected.end():]
-    path.write_text(src, encoding="utf-8")
-    print("renderer compatibility: patched safely before renderer return")
+        marker_pos = src.index(marker)
+        block_start = src.rfind("\n", 0, marker_pos) + 1
+        remainder = src[marker_pos:]
+        return_match = re.search(r"(?m)^[ \t]*return\s+base\s*$", remainder)
+        if not return_match:
+            raise RuntimeError("Guard renderer lama ditemukan, tetapi batas return base tidak aman; source tidak diubah.")
+        return_start = marker_pos + return_match.start()
+        src = src[:block_start] + src[return_start:]
+        path.write_text(src, encoding="utf-8")
+        print("renderer compatibility: removed legacy forced MobileGlues override")
+    else:
+        print("renderer compatibility: upstream per-instance/global selection preserved; no auto-switch")
 
 def patch_controls(app: Path) -> None:
     """Hook IMZYY controls (look sensitivity, touch slop/long-press, virtual mouse + cursor overlay)

@@ -1,11 +1,5 @@
-# IMZYY XL Lite v10.1.2 — Display & renderer compatibility fix
+# Superseded — v10.1.2 display/renderer patch
 
-## Fixes
-- Removed IMZYY's second fullscreen/insets/display-cutout override from the Minecraft activity. The upstream MinecraftActivity/SDL now retains ownership of the game window and native SurfaceView viewport.
-- Kept IMZYY lifecycle behavior: Safe Boot session markers, touch-pad attachment after resume, and release of held controls on pause.
-- Added a session-only renderer safety guard: if Sodium/Embeddium is detected with GL4ES on a modern Minecraft instance, use MobileGlues for that launch. The saved global and per-instance renderer choices are left unchanged.
-- Added integration regression checks for both changes.
+This note describes the previous v10.1.2 attempt. Its automatic MobileGlues override was not a reliable display fix and could produce a black/magenta screen on some Mali devices. Do not treat that renderer override as the current behavior.
 
-## Validation scope
-- Offline patch integration tests validate the source injection and window-hook invariants.
-- A successful test run does not replace a full Android Gradle build or a real render test on the Galaxy A07. Verify vanilla first, then the same Fabric instance with mods.
+Use v10.1.4, which removes the automatic renderer override and preserves the upstream per-instance/global renderer selection. This does not by itself guarantee that every mod or GPU driver will render correctly.

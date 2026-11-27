@@ -94,9 +94,13 @@ Do not stack multiple renderer drivers or copy random JVM flags from PC guides. 
 
 The game `SurfaceView` and SDL window remain owned by the upstream Minecraft activity. IMZYY only attaches its touch-pad overlay and boot markers; it does not change `decorFitsSystemWindows` or the display-cutout policy from an activity lifecycle callback. This avoids applying a second window geometry policy after the native renderer has measured its viewport.
 
-When Sodium or Embeddium is installed and the saved renderer is GL4ES, the game launch uses MobileGlues for that session only. The global and per-instance renderer preferences are not rewritten. This is a compatibility guard, not a promise that every modpack or GPU driver will render correctly.
+IMZYY does not automatically change the renderer based on mod filenames. The upstream per-instance renderer selection is used when present; otherwise the upstream global renderer setting is used. This is intentional: renderer support depends on the exact GPU, driver, Minecraft version and mod set, and automatically forcing MobileGlues produced a black/magenta rendering regression on some Mali configurations.
 
-The upstream engine documents Zink as the modern Vulkan-to-OpenGL path, Krypton as GLES 3.x, GL4ES as a compatibility path mainly for older versions, and MobileGlues as another OpenGL/GLES path. Sodium/Embeddium need a modern OpenGL path; GL4ES is not suitable. For modern Sodium/Embeddium instances that explicitly select GL4ES, IMZYY now chooses MobileGlues for that launch only. If artifacts remain, test a clean vanilla instance and compare MobileGlues, Krypton and Zink one at a time. The BOOST > Perbaikan render / tekstur action clears IMZYY-generated visual overrides, but it cannot repair a broken GPU driver.
+The upstream engine exposes Zink, Krypton, GL4ES and MobileGlues with different graphics capabilities. Do not assume one renderer is best for every device. First test a clean vanilla instance with no mods or shader packs; then test the same instance with mods added in small groups. Sodium's own current compatibility check can reject Pojav-style Android environments regardless of renderer, so IMZYY does not bypass that check. BOOST > Perbaikan render / tekstur backs up and resets active resource/shader-pack selections; it cannot repair a broken GPU driver or make an unsupported mod compatible.
+
+## v10.1.4 renderer regression rollback
+
+The automatic Sodium/Embeddium-to-MobileGlues renderer switch from v10.1.2/v10.1.3 has been removed. IMZYY now preserves the renderer selected by the user in the upstream instance/global settings. This is a rollback of an unsafe assumption, not a promise that the current modpack's GPU output is fixed.
 
 ## Build with GitHub Actions
 

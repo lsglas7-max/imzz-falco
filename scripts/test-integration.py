@@ -54,6 +54,10 @@ class MinecraftActivity {
         if (isPre113Version(versionId) && base.id != "gl4es" && base.id != "gl4es_desktop" && base.id != "krypton") {
             return Renderer.fromId("gl4es")
         }
+        // IMZYY RENDERER COMPATIBILITY GUARD
+        if (hasSodiumFamily && base.id == "gl4es") {
+            base = Renderer.fromId("mobileglues")
+        }
         return base
     }
     /**
@@ -161,9 +165,10 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert 'Text("FPS", color = Color.Black' in settings_screen
         base_ui = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation"
         patched_activity = (base_ui / "MinecraftActivity.kt").read_text()
-        assert "IMZYY RENDERER COMPATIBILITY GUARD" in patched_activity
-        assert 'Renderer.fromId("mobileglues")' in patched_activity
-        assert 'mod.name.contains("sodium"' in patched_activity and 'mod.name.contains("embeddium"' in patched_activity
+        assert "IMZYY RENDERER COMPATIBILITY GUARD" not in patched_activity, "legacy forced renderer guard must be removed"
+        assert 'Renderer.fromId("mobileglues")' not in patched_activity, "IMZYY must not force MobileGlues"
+        assert "private fun resolveRendererForVersion(): Renderer" in patched_activity
+        assert "return base" in patched_activity, "upstream per-instance/global renderer selection remains intact"
         assert "ImzyyControls.lookSensitivity(this)" in patched_activity
         assert "import id.imzyy.xl.ImzyyControls" in (base_ui / "ui/components/GameControllerView.kt").read_text()
         assert "id.imzyy.xl.ImzyyControls." not in (base_ui / "ui/components/GameControllerView.kt").read_text()
