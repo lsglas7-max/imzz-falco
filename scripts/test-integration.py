@@ -171,7 +171,7 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert "ImzyyPad.attach(a)" in (hub_dir / "ImzyyWindow.kt").read_text()
         assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "SMOOTH" in (hub_dir / "FpsTuner.kt").read_text()
         assert "liteAutoTune()" in (hub_dir / "ImzyyHubActivity.kt").read_text()
-        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt"):
+        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt", "RecoveryTools.kt", "LunaSixty.kt"):
             assert (hub_dir / name).is_file(), name
         hub_source = (hub_dir / "ImzyyHubActivity.kt").read_text()
         account_source = (hub_dir / "ImzyyAccountStore.kt").read_text()
@@ -180,7 +180,7 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert "PBKDF2WithHmacSHA256" in account_source and "active_user" in account_source
         assert "importPng" in skin_source and "IMZYY-Local-Skin.zip" in skin_source
         assert "OpenDocument" in hub_source and "64 × 64" in hub_source
-        assert '5 -> SkinTab(s)' in hub_source and 'else -> AccountTab(s)' in hub_source
+        assert '5 -> SkinTab(s)' in hub_source and '6 -> AccountTab(s)' in hub_source and '7 -> LunaSixtyTab(s)' in hub_source
         cfg = (hub_dir / "ImzyyConfig.kt").read_text()
         assert 'GITHUB_REPO = "owner/imzyy"' in cfg and "@" not in cfg, cfg
         assert (app / "src/main/res/values/imzyy_theme.xml").is_file()
@@ -219,7 +219,31 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
     restart_src = (ROOT / "android-overlay/kotlin/ImzyyPad.kt").read_text()
     assert "FLAG_ACTIVITY_SINGLE_TOP" in restart_src and "act.finish()" in restart_src, "restart preserves hub task"
     graphics_src = (ROOT / "android-overlay/kotlin/GraphicsRepair.kt").read_text()
-    assert "IMZYY-Quiet.zip" in graphics_src and "IMZYY-Vanilla-Lite-imzyy-lite.zip" in graphics_src, "graphics repair only targets IMZYY generated packs"
+    assert r'resourcePacks:[\"vanilla\"]' in graphics_src, "graphics repair resets active resource packs to vanilla"
+    assert 'incompatibleResourcePacks:[]' in graphics_src and 'graphics-before' in graphics_src, "graphics repair backs up and clears active packs"
+    recovery_src = (ROOT / "android-overlay/kotlin/RecoveryTools.kt").read_text()
+    for marker in ("startSafeBoot", "restoreSafeBoot", "scanMods", "criticalWarnings", "writeDiagnostics", "onGameCreated", "onGameDestroyed", "gameProcessAlive"):
+        assert marker in recovery_src, marker
+    assert 'safe-boot-' in recovery_src and 'mods-created-during-safe-boot' in recovery_src, "safe boot backups are reversible"
+    window_src = (ROOT / "android-overlay/kotlin/ImzyyWindow.kt").read_text()
+    assert "ImzyyBootGuard.onGameCreated(a)" in window_src and "ImzyyBootGuard.onGameDestroyed(a)" in window_src
+    assert "START SAFE BOOT" in hub_src and "BUAT LOG DIAGNOSTIK" in hub_src
+    assert "RecoveryTools.criticalWarnings(scan)" in hub_src, "preflight blocks common duplicate renderer mods"
+    assert "RecoveryTools.scanMods(target)" in (ROOT / "android-overlay/kotlin/Mrpack.kt").read_text(), "mrpack install audits staged mods"
+    luna_src = (ROOT / "android-overlay/kotlin/LunaSixty.kt").read_text()
+    assert 'kyio' in luna_src and 'gpt-6-luna?q=' in luna_src, "Luna Sixty endpoint is integrated"
+    assert "HttpURLConnection" in luna_src and "connectTimeout = 18_000" in luna_src and "readTimeout = 55_000" in luna_src
+    assert "ANALISIS LOG INSTANCE" in luna_src and "ANALISIS DENGAN LUNA SIXTY" in hub_src
+    assert '7 -> LunaSixtyTab(s)' in hub_src and '"LUNA AI"' in hub_src
+    assert 'Text("LUNA SIXTY"' in luna_src and "Bearer [REDACTED]" in luna_src and "state.lunaMessages" in luna_src
+    assert "Graphics settings:" in recovery_src and "Resource packs on disk" in recovery_src and "Shader packs on disk" in recovery_src
+    # The endpoint is kept in the native API client only, not copied into UI or docs.
+    api_host = ".".join(("api", "kyio", "web", "id"))
+    for public_file in (ROOT / "README.md", ROOT / "RECOVERY-V10-CHANGELOG.md", ROOT / "GITHUB-ACTIONS-SETUP.txt", ROOT / "android-overlay/kotlin/ImzyyHubActivity.kt"):
+        assert api_host not in public_file.read_text(encoding="utf-8")
+    for source_file in (ROOT / "android-overlay/kotlin").glob("*.kt"):
+        if source_file.name != "LunaSixty.kt":
+            assert api_host not in source_file.read_text(encoding="utf-8")
     assert (ROOT / "scripts/build-imzyy.sh").is_file()
     assert not (ROOT / "scripts/build-amethyst.sh").exists()
     assert not (ROOT / "scripts/prepare-amethyst.py").exists()

@@ -36,7 +36,7 @@ Lite is a build variant of the same project (`IMZYY_VARIANT=lite`, workflow `and
   - **IMPORT**: `.mrpack` (Modrinth format v1) importer: hash-verified parallel downloads from allow-listed hosts, zip-slip-safe overrides/client-overrides extraction. Create the matching instance (version + loader) in the launcher first, then pick its folder.
   - **GitHub card**: repo/releases buttons and a "latest release" check (needs `IMZYY_GITHUB_REPO`, set automatically by CI).
 - Sodium/Embeddium need an OpenGL 3.2+ path (Zink, Krypton, MobileGlues); do not use them with GL4ES. Sodium is now opt-in rather than preselected so a new FPS pack does not silently install an incompatible renderer mod.
-- **Graphics repair**: the Hub > BOOST tab can clear shader selection and only the two IMZYY-generated texture/language packs when a world shows magenta textures. Custom resource packs are kept. The engine renderer is not forcibly changed; select it in the existing renderer settings.
+- **Graphics repair (v10)**: backs up `options.txt` and Iris/OptiFine shader settings, resets active resource-pack selections to Vanilla and clears the selected shader. Pack files are preserved; settings can be restored from the Hub.
 - **KONTROL tab + in-game hooks** (patched into the real upstream input code, verified against its source):
   - camera sensitivity (replaces the fixed 1.5 constant), drag slop and long-press delay, all live-tunable;
   - **virtual mouse / touchpad mode** for menus and inventory: drag moves a visible cursor, tap = left click, long press or two-finger tap = right click (gameplay keeps normal camera control);
@@ -143,3 +143,26 @@ Upstream engine: https://github.com/FlameLaunchers/FlameLauncher-Android
 - **Restart safety**: RESTART GAME waits up to 30 seconds for the isolated game process to end. It never edits `mods/` while the JVM is still alive; on timeout the staged pack is left untouched and the player can close Minecraft and press PLAY from the Hub.
 - **Sodium on Android**: Sodium 0.5.x prints a red "PojavLauncher is not supported" console message because of the POJAV_* environment this engine needs. On PLAY, a tiny lang-only pack (`resourcepacks/IMZYY-Quiet.zip`) blanks that one message. It only hides the notice; it does not change how Sodium behaves. Newer Sodium (0.6+) throws instead of warning and cannot be hidden this way.
 - **Bahasa game** (BOOST tab): INDONESIA / ENGLISH chips write `lang` into the instance options.txt without opening the in-game menu.
+
+
+## IMZYY XL v10 Recovery Center
+
+- Graphics recovery backs up `options.txt` and Iris/OptiFine shader settings, resets active resource packs to Vanilla, and disables the selected shader without deleting user pack files. Settings can be restored from the Hub.
+- Safe Boot reversibly moves the live `mods/` folder and pending `.mrpack` staging folder into `.imzyy-recovery/`. Restore brings them back; files created during Safe Boot are preserved separately.
+- A pre-launch mod audit reads common Fabric/Quilt/Forge metadata and blocks common conflict combinations (duplicate mod IDs, Sodium + Embeddium, Iris + Oculus, and OptiFine with Sodium/Embeddium).
+- Game-process markers detect a session that ended without a clean activity-destroy callback. The Hub can create a redacted diagnostics report at `logs/imzyy-diagnostics.txt`.
+- Mod install/uninstall, graphics repair and Safe Boot are refused while the Minecraft process is still alive, avoiding writes into files currently used by the JVM.
+
+Renderer selection is intentionally not forced by the recovery routine. The upstream engine exposes several renderer backends, and compatibility depends on Minecraft version, GPU driver and mods. After a clean Safe Boot, use the upstream Settings > Renderer control to compare an unmodded baseline with the modded instance.
+
+
+## v10.0 Recovery patch validation
+
+The repository's offline integration suite checks that the recovery UI/hooks are injected and that the new Kotlin sources are present. A JVM test compiles the recovery classes against Android/JSON stubs and exercises the Safe Boot backup/restore flow plus graphics reset/restore on a synthetic instance. A full Android Gradle build and on-device GPU/renderer test must still be run by GitHub Actions and on the target device.
+
+
+## Luna Sixty (v10.1)
+
+The launcher includes a native Luna Sixty assistant screen. Users can ask general questions and request a filtered diagnosis of the selected Minecraft instance. Diagnostic reports are generated locally and sent only after the user taps **Analisis Log Instance**. The UI and app logs do not display the service URL. Because the endpoint is called from an Android client, a determined user can still discover it by inspecting the APK or network traffic; use a server-side proxy if the endpoint must be concealed from clients.
+
+The diagnostic report now also includes selected graphics options and the names of local resource/shader packs, alongside relevant Minecraft log lines and mod metadata.

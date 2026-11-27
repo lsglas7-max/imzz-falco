@@ -21,7 +21,10 @@ object ImzyyWindow {
         if (installed) return
         installed = true
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityCreated(a: Activity, b: Bundle?) { apply(a) }
+            override fun onActivityCreated(a: Activity, b: Bundle?) {
+                apply(a)
+                if (a is MinecraftActivity) runCatching { ImzyyBootGuard.onGameCreated(a) }
+            }
             override fun onActivityStarted(a: Activity) {}
             override fun onActivityResumed(a: Activity) {
                 apply(a)
@@ -32,7 +35,9 @@ object ImzyyWindow {
             }
             override fun onActivityStopped(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
-            override fun onActivityDestroyed(a: Activity) {}
+            override fun onActivityDestroyed(a: Activity) {
+                if (a is MinecraftActivity) runCatching { ImzyyBootGuard.onGameDestroyed(a) }
+            }
         })
     }
 

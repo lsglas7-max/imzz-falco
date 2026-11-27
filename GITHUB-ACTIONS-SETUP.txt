@@ -7,3 +7,5 @@ IMZYY XL Lite (ARM64)
    - A pre-release named "Java runtimes (auto)" (tag: runtimes) is created. Do NOT delete it: the app downloads Java 8/17/25 from it.
 4. The run summary shows "APK size".
 The full (big) build is manual only: Actions > "Build IMZYY XL Launcher (ARM64)" > Run workflow.
+
+5. The LUNA AI tab (Luna Sixty) is included in the launcher. Its diagnostic upload runs only after the user taps the analysis button.

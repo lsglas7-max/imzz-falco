@@ -232,6 +232,8 @@ object Mrpack {
         }
         if (isPendingStage) {
             File(target, "mods").mkdirs()
+            val audit = RecoveryTools.scanMods(target)
+            RecoveryTools.criticalWarnings(audit).forEach { say("⚠ Konflik mod terdeteksi: $it") }
             File(target, ".imzyy-ready").writeText("ready\n")
         }
         onProgress(1f)

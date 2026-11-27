@@ -1,76 +1,122 @@
 package id.imzyy.xl
 
 import java.io.File
-import org.json.JSONArray
 
-/** Removes only IMZYY-generated visual overrides when textures/shaders render as magenta or corrupted. */
+/** Reversible graphics recovery: back up settings, disable active shader/resource-pack selections. */
 object GraphicsRepair {
-    data class Report(val settingsChanged: Int, val generatedPacksRemoved: Int)
-
-    private val managedPackNames = setOf(
-        "IMZYY-Quiet.zip",
-        "IMZYY-Vanilla-Lite-imzyy-lite.zip",
+    data class Report(
+        val settingsChanged: Int,
+        val selectedPacksReset: Int,
+        val backupDirectory: String,
     )
 
-    private fun clearPackRefs(line: String): Pair<String, Boolean> {
-        val key = when {
-            line.startsWith("resourcePacks:") -> "resourcePacks:"
-            line.startsWith("incompatibleResourcePacks:") -> "incompatibleResourcePacks:"
-            else -> return line to false
+    private fun backup(instance: File, source: File): String {
+        val relative = source.relativeTo(instance).invariantSeparatorsPath
+        val root = File(instance, ".imzyy-recovery/graphics-before")
+        val target = File(root, relative)
+        if (!target.exists()) {
+            target.parentFile?.mkdirs()
+            source.copyTo(target, overwrite = false)
         }
-        val parsed = runCatching { JSONArray(line.removePrefix(key)) }.getOrNull() ?: return line to false
-        val kept = JSONArray()
-        var changed = false
-        for (i in 0 until parsed.length()) {
-            val value = parsed.optString(i)
-            val fileName = value.removePrefix("file/")
-            if (fileName in managedPackNames) changed = true else kept.put(value)
-        }
-        return (key + kept.toString()) to changed
+        return root.relativeTo(instance).invariantSeparatorsPath
     }
 
-    private fun clearShaderChoice(file: File): Boolean {
-        if (!file.isFile || file.length() > 256 * 1024) return false
-        val lines = runCatching { file.readLines() }.getOrNull() ?: return false
+    private fun resetOptions(file: File): Pair<Boolean, Boolean> {
+        if (!file.isFile || file.length() > 512 * 1024) return false to false
+        val old = runCatching { file.readLines() }.getOrNull() ?: return false to false
         var changed = false
-        val cleaned = lines.map { line ->
-            val trimmed = line.trimStart()
-            val separator = when {
-                trimmed.startsWith("shaderPack:", true) -> ":"
-                trimmed.startsWith("shaderPack=", true) -> "="
-                trimmed.startsWith("shader_pack=", true) -> "="
-                else -> null
-            }
-            if (separator != null) {
-                val prefix = line.substring(0, line.indexOf(separator) + 1)
-                if (line.substring(prefix.length).isNotBlank()) changed = true
-                prefix
-            } else {
-                val (value, didChange) = clearPackRefs(line)
-                if (didChange) changed = true
-                value
+        var packsReset = false
+        val updated = old.map { line ->
+            val clean = line.trimStart()
+            val colon = clean.indexOf(':')
+            if (colon <= 0) return@map line
+            val key = clean.substring(0, colon).trim()
+            val indent = line.takeWhile { it == ' ' || it == '\t' }
+            when (key) {
+                "resourcePacks" -> {
+                    val replacement = indent + "resourcePacks:[\"vanilla\"]"
+                    if (replacement != line) { changed = true; packsReset = true }
+                    replacement
+                }
+                "incompatibleResourcePacks" -> {
+                    val replacement = indent + "incompatibleResourcePacks:[]"
+                    if (replacement != line) { changed = true; packsReset = true }
+                    replacement
+                }
+                "shaderPack" -> {
+                    val replacement = indent + "shaderPack:"
+                    if (replacement != line) changed = true
+                    replacement
+                }
+                else -> line
             }
         }
-        if (changed) file.writeText(cleaned.joinToString("\n") + "\n")
+        if (changed) file.writeText(updated.joinToString("\n") + "\n")
+        return changed to packsReset
+    }
+
+    private fun resetShaderProperties(file: File): Boolean {
+        if (!file.isFile || file.length() > 256 * 1024) return false
+        val old = runCatching { file.readLines() }.getOrNull() ?: return false
+        var changed = false
+        val updated = old.map { line ->
+            val trimmed = line.trimStart()
+            val split = when {
+                trimmed.startsWith("shaderPack=", true) -> '='
+                trimmed.startsWith("shaderPack:", true) -> ':'
+                trimmed.startsWith("shader_pack=", true) -> '='
+                else -> null
+            }
+            if (split == null) line else {
+                val idx = line.indexOf(split)
+                val replacement = line.substring(0, idx + 1)
+                if (line.substring(idx + 1).isNotBlank()) changed = true
+                replacement
+            }
+        }
+        if (changed) file.writeText(updated.joinToString("\n") + "\n")
         return changed
     }
 
+    /**
+     * Backs up every file before editing. All user resource packs and shader files are preserved;
+     * only their active selections are reset to vanilla/off for a clean diagnostic boot.
+     */
     fun repair(instance: File): Report {
         require(instance.isDirectory) { "Instance belum tersedia" }
-        var settings = 0
         val options = File(instance, "options.txt")
-        if (clearShaderChoice(options)) settings++
+        val shaderFiles = listOf(
+            File(instance, "optionsshaders.txt"),
+            File(instance, "config/iris.properties"),
+            File(instance, "config/iris.properties.bak"),
+        )
+        val files = listOf(options) + shaderFiles
+        val existing = files.filter { it.isFile }
+        existing.forEach { backup(instance, it) }
 
-        val config = File(instance, "config")
-        listOf(File(config, "iris.properties"), File(config, "iris.properties.bak"), File(instance, "optionsshaders.txt"))
-            .forEach { if (clearShaderChoice(it)) settings++ }
+        var changed = 0
+        var packs = 0
+        val op = resetOptions(options)
+        if (op.first) changed++
+        if (op.second) packs++
+        shaderFiles.forEach { file -> if (resetShaderProperties(file)) changed++ }
+        val backupPath = File(instance, ".imzyy-recovery/graphics-before").relativeTo(instance).invariantSeparatorsPath
+        return Report(changed, packs, backupPath)
+    }
 
-        var removed = 0
-        val packs = File(instance, "resourcepacks")
-        managedPackNames.forEach { name ->
-            val f = File(packs, name)
-            if (f.isFile && f.delete()) removed++
+    /** Restores the first pre-repair copy, never overwriting it with a later state. */
+    fun restore(instance: File): Int {
+        val backupRoot = File(instance, ".imzyy-recovery/graphics-before")
+        if (!backupRoot.isDirectory) return 0
+        var restored = 0
+        backupRoot.walkTopDown().filter { it.isFile }.forEach { saved ->
+            val relative = saved.relativeTo(backupRoot)
+            val target = File(instance, relative.path)
+            target.parentFile?.mkdirs()
+            saved.copyTo(target, overwrite = true)
+            restored++
         }
-        return Report(settings, removed)
+        backupRoot.deleteRecursively()
+        return restored
     }
 }

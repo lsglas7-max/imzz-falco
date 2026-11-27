@@ -110,7 +110,7 @@ class ImzyyHubActivity : ComponentActivity() {
         val deadline = android.os.SystemClock.elapsedRealtime() + 30_000L
         val wait = object : Runnable {
             override fun run() {
-                val alive = am.runningAppProcesses.orEmpty().any {
+                val alive = ImzyyBootGuard.gameProcessAlive(this@ImzyyHubActivity) || am.runningAppProcesses.orEmpty().any {
                     it.processName == "$packageName:minecraft" || it.processName.endsWith(":minecraft")
                 }
                 if (alive) {
@@ -194,11 +194,22 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     val tierName: String get() = listOf("LOW", "MID", "FLAGSHIP")[tier]
 
     val logs = mutableStateListOf<String>()
+    val lunaMessages = mutableStateListOf(
+        LunaMessage(
+            "assistant",
+            "Halo! Gue Luna Sixty, asisten bawaan IMZYY XL. Gue bisa bantu membaca pesan error, menjelaskan konflik mod, memandu Safe Boot, membahas grafis Minecraft, dan menjawab pertanyaan umum. Pilih Analisis Log untuk mengirim ringkasan diagnostik instance secara sadar."
+        )
+    )
+    var lunaDraft by mutableStateOf("")
+    var lunaBusy by mutableStateOf(false)
+    var lunaStatus by mutableStateOf("")
     val instances = mutableStateListOf<InstanceMeta>()
     val hits = mutableStateListOf<Hit>()
     val picked = mutableStateMapOf<String, Boolean>().also { m -> PerfPack.catalog.forEach { m[it.slug] = it.defaultOn } }
     var skinTick by mutableStateOf(0)
     var skinSlim by mutableStateOf(ImzyySkinManager.isSlim(ctx))
+    var safeBootActive by mutableStateOf(false)
+    var bootFailures by mutableStateOf(ImzyyBootGuard.recentFailures(ctx))
 
     fun say(s: String) {
         logs.add(s)
@@ -209,7 +220,12 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     val gameVersion: String get() = meta?.mcVersion ?: ""
     val loader: String get() = meta?.loaderType ?: ""
 
-    fun select(id: String) { selectedId = id; prefs.edit().putString("inst", id).apply() }
+    fun select(id: String) {
+        selectedId = id
+        prefs.edit().putString("inst", id).apply()
+        safeBootActive = id.isNotEmpty() && runCatching { RecoveryTools.safeBootActive(InstanceManager.instanceDir(ctx, id)) }.getOrDefault(false)
+        bootFailures = ImzyyBootGuard.recentFailures(ctx)
+    }
 
     private fun needTarget(): File {
         val m = meta ?: error("Pilih instance dulu (buat instance di launcher jika belum ada)")
@@ -242,6 +258,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
             val found = withContext(Dispatchers.IO) { InstanceManager.listInstances(ctx) }
             instances.clear(); instances.addAll(found)
             if (found.none { it.id == selectedId }) select(found.firstOrNull()?.id ?: "")
+            else select(selectedId)
         }
     }
 
@@ -255,6 +272,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun installPack() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memasang mod.")
         val l = needLoader()
         val mods = File(needTarget(), "mods")
         val slugs = PerfPack.catalog.filter { picked[it.slug] == true }.map { it.slug }
@@ -265,6 +283,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun removePack() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum mencopot mod.")
         val n = PerfPack.uninstall(File(needTarget(), "mods"))
         say("✓ $n file paket FPS dihapus")
     }
@@ -279,6 +298,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun installHit(h: Hit) = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memasang mod.")
         val l = needLoader()
         val mods = File(needTarget(), "mods")
         say("Memasang ${h.title}…")
@@ -295,6 +315,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
 
     /** One picker for everything: .mrpack, a single .jar, or a .zip that holds mods. */
     fun pickFile(uri: Uri) = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum mengubah folder mods.")
         val name = ModImport.displayName(ctx, uri)
         if (name.endsWith(".jar", ignoreCase = true)) {
             val n = ModImport.install(ctx, uri, File(needTarget(), "mods"), this::say)
@@ -393,6 +414,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun installVoxy() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memasang Voxy.")
         val l = needLoader()
         if (l != "fabric" && l != "quilt") error("Voxy hanya untuk instance Fabric/Quilt")
         val mods = File(needTarget(), "mods")
@@ -408,6 +430,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun installModMenu() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memasang Mod Menu.")
         val l = needLoader()
         if (l != "fabric") error("Mod Menu hanya untuk instance Fabric")
         val dir = needTarget()
@@ -475,7 +498,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
 
     private fun minecraftProcessAlive(): Boolean {
         val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        return am.runningAppProcesses.orEmpty().any {
+        return ImzyyBootGuard.gameProcessAlive(ctx) || am.runningAppProcesses.orEmpty().any {
             it.processName == "${ctx.packageName}:minecraft" || it.processName.endsWith(":minecraft")
         }
     }
@@ -510,9 +533,44 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     fun repairAssets() = runJob { assetJob() }
 
     fun repairGraphics() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memperbaiki options dan renderer.")
         val report = GraphicsRepair.repair(needTarget())
-        say("✓ Pemulihan grafis selesai: ${report.settingsChanged} pengaturan dibersihkan, ${report.generatedPacksRemoved} pack IMZYY lama dihapus.")
-        say("Renderer tidak diubah otomatis. Buka Settings > Renderer: coba Zink; bila masih glitch, uji MobileGlues atau Krypton. Hindari GL4ES untuk Sodium/versi modern.")
+        say("✓ Pemulihan grafis: ${report.settingsChanged} file pengaturan dibersihkan; ${report.selectedPacksReset} pilihan resource pack/shader dinonaktifkan sementara.")
+        say("Semua file resource pack dan shader tetap disimpan. Backup pengaturan: ${report.backupDirectory}.")
+        say("Renderer tidak dipaksa otomatis. Coba Krypton untuk baseline kompatibilitas; untuk Sodium/Iris modern uji Zink/Panfrost atau MobileGlues sesuai dukungan perangkat.")
+    }
+
+    fun restoreGraphics() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memulihkan pengaturan grafis.")
+        val n = GraphicsRepair.restore(needTarget())
+        say(if (n > 0) "✓ $n file pengaturan grafis dikembalikan dari backup." else "Tidak ada backup pengaturan grafis untuk dipulihkan.")
+    }
+
+    fun startSafeBoot() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum Safe Boot memindahkan folder mods.")
+        val target = needTarget()
+        val report = RecoveryTools.startSafeBoot(target)
+        safeBootActive = true
+        val graphics = GraphicsRepair.repair(target)
+        say("✓ SAFE BOOT disiapkan. Folder mods: ${if (report.modsBackedUp) "dicadangkan" else "kosong"}; pending pack: ${if (report.pendingPackBackedUp) "diamankan" else "tidak ada"}.")
+        say("Shader dan resource pack aktif dimatikan sementara; file asli tetap disimpan. Sekarang HOME → PLAY, lalu jalankan instance yang sama.")
+        say("Backup: .imzyy-recovery/${report.backupDirectory}; grafis: ${graphics.backupDirectory}")
+    }
+
+    fun restoreSafeBoot() = runJob {
+        if (minecraftProcessAlive()) error("Tutup Minecraft sepenuhnya sebelum memulihkan modpack.")
+        val report = RecoveryTools.restoreSafeBoot(needTarget())
+        safeBootActive = false
+        say("✓ Mods dan pending modpack dari ${report.backupDirectory} dipulihkan. Tidak ada file cadangan yang dihapus.")
+    }
+
+    fun writeDiagnostics() = runJob {
+        val target = needTarget()
+        val scan = RecoveryTools.scanMods(target)
+        val file = RecoveryTools.writeDiagnostics(target)
+        say("✓ Diagnostik tersimpan: ${file.path}")
+        say("${scan.jarCount} JAR diperiksa. ${scan.warnings.take(3).joinToString(" | ")}")
+        bootFailures = ImzyyBootGuard.recentFailures(ctx)
     }
 
     fun play() {
@@ -529,6 +587,16 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
             try {
                 val r = withContext(Dispatchers.IO) { assetJob() }
                 block = r != null && r.failed > 0
+                if (!block) {
+                    val scan = withContext(Dispatchers.IO) { RecoveryTools.scanMods(needTarget()) }
+                    val critical = RecoveryTools.criticalWarnings(scan)
+                    scan.warnings.filterNot { it.startsWith("Tidak ditemukan") }.forEach { say("⚠ $it") }
+                    if (critical.isNotEmpty()) {
+                        block = true
+                        prepFailed = true
+                        say("Launch ditahan karena konflik mod berisiko. Gunakan Safe Boot atau perbaiki JAR yang disebutkan di atas.")
+                    }
+                }
             } catch (e: Exception) {
                 prepFailed = true
                 say("Persiapan instance gagal: ${e.message ?: e.javaClass.simpleName}. Game tidak dibuka agar file mod tidak rusak.")
@@ -572,11 +640,13 @@ fun HubApp() {
                         3 -> ImportTab(s)
                         4 -> ControlsTab(s)
                         5 -> SkinTab(s)
-                        else -> AccountTab(s) {
+                        6 -> AccountTab(s) {
                             ImzyyAccountStore.logout(ctx)
                             signedIn = false
                             s.tab = 0
                         }
+                        7 -> LunaSixtyTab(s)
+                        else -> HomeTab(s)
                     }
                 }
             }
@@ -587,7 +657,7 @@ fun HubApp() {
 
 @Composable
 private fun NavBar(s: HubState) {
-    val names = listOf("HOME", "BOOST", "MODS", "IMPORT", "KONTROL", "SKIN", "AKUN")
+    val names = listOf("HOME", "BOOST", "MODS", "IMPORT", "KONTROL", "SKIN", "AKUN", "LUNA AI")
     Row(
         Modifier.fillMaxWidth().background(Ink.Black).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -645,6 +715,15 @@ private fun HomeTab(s: HubState) {
                     Text("Boost FPS", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("Profil options.txt + paket mod performa (Sodium, Lithium, FerriteCore, ModernFix…).", color = Ink.Sub, fontSize = 13.sp)
                     InkButton("BUKA BOOST", { s.tab = 1 }, filled = false)
+                }
+            }
+        }
+        item {
+            Reveal(3) {
+                Panel {
+                    Text("Luna Sixty AI", color = Ink.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                    Text("Asisten bawaan untuk tanya-jawab, analisis boot loop, konflik mod, dan layar magenta berdasarkan ringkasan log instance.", color = Ink.Sub, fontSize = 12.sp)
+                    InkButton("BUKA LUNA SIXTY", { s.tab = 7 }, filled = false)
                 }
             }
         }
@@ -763,9 +842,31 @@ private fun BoostTab(s: HubState) {
             Reveal(4) {
                 Panel {
                     Text("Perbaikan render / tekstur", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Untuk layar ungu/magenta, tekstur rusak, atau shader yang gagal: bersihkan hanya override shader dan resource pack buatan IMZYY. Pack pribadi lain tetap dipertahankan.", color = Ink.Sub, fontSize = 12.sp)
-                    Text("Renderer modern: coba Zink terlebih dahulu. Jika belum cocok di GPU Mali, uji MobileGlues atau Krypton. GL4ES ditujukan terutama untuk versi lama dan tidak cocok untuk Sodium/Embeddium.", color = Ink.Sub, fontSize = 12.sp)
-                    InkButton("PERBAIKI RENDER & TEKSTUR", { s.repairGraphics() }, enabled = !s.busy)
+                    Text("Reset pilihan shader dan resource pack aktif ke Vanilla untuk diagnosis. Semua file pack asli tetap disimpan dan bisa dipilih kembali.", color = Ink.Sub, fontSize = 12.sp)
+                    Text("Renderer harus diuji dari Settings upstream. Untuk baseline coba Krypton; untuk Sodium/Iris modern uji Zink/Panfrost atau MobileGlues jika tersedia. Jangan paksa GL4ES untuk mod OpenGL modern.", color = Ink.Sub, fontSize = 12.sp)
+                    InkButton("RESET RENDER & RESOURCE PACK", { s.repairGraphics() }, enabled = !s.busy)
+                    InkButton("PULIHKAN PENGATURAN GRAFIS", { s.restoreGraphics() }, filled = false, enabled = !s.busy)
+                }
+            }
+        }
+        item {
+            Reveal(4) {
+                Panel {
+                    Text("IMZYY RECOVERY CENTER", color = Ink.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                    Text(
+                        if (s.bootFailures > 0) "Sesi Minecraft sebelumnya berhenti tanpa penanda selesai (${s.bootFailures} kali dalam 10 menit). Coba Safe Boot untuk menguji tanpa modpack."
+                        else "Kalau Minecraft berulang di Booting atau layar magenta, uji dulu tanpa mod. Mods dan modpack akan dipindah ke backup, bukan dihapus.",
+                        color = Ink.Sub, fontSize = 12.sp,
+                    )
+                    if (s.safeBootActive) {
+                        Text("SAFE BOOT AKTIF • mods dan pending modpack sedang dicadangkan", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        InkButton("PULIHKAN MODS & MODPACK", { s.restoreSafeBoot() }, enabled = !s.busy)
+                    } else {
+                        InkButton("START SAFE BOOT • TANPA MOD", { s.startSafeBoot() }, enabled = !s.busy)
+                    }
+                    InkButton("BUAT LOG DIAGNOSTIK", { s.writeDiagnostics() }, filled = false, enabled = !s.busy)
+                    InkButton("ANALISIS DENGAN LUNA SIXTY", { s.tab = 7 }, filled = false, enabled = !s.busy)
+                    Text("Safe Boot menyimpan cadangan di .imzyy-recovery. Setelah pengujian, gunakan tombol pulihkan untuk mengembalikan modpack. Luna hanya mengirim ringkasan saat kamu menekan Analisis Log.", color = Ink.Sub, fontSize = 10.sp)
                 }
             }
         }
