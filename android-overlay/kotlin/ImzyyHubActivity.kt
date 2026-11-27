@@ -84,36 +84,80 @@ class ImzyyHubActivity : ComponentActivity() {
     }
 
     /**
-     * In-game RESTART GAME lands here with the original game intent. Wait for the old game process to die
-     * (a live process would be reused, not restarted), apply the staged modpack, then start the game again.
+     * In-game RESTART GAME lands here with the original game intent. Do not touch mod jars until the
+     * isolated Minecraft process has actually exited. If Android keeps it alive too long, leave the
+     * staged pack intact and ask the user to reopen from the Hub instead of risking a half-written mods/.
      */
+    private var relaunchInProgress = false
+
     @Suppress("DEPRECATION")
     private fun handleRelaunch(i: Intent?) {
         val game = i?.getParcelableExtra<Intent>(EXTRA_RELAUNCH) ?: return
         i.removeExtra(EXTRA_RELAUNCH)
-        android.widget.Toast.makeText(this, "Memulai ulang game…", android.widget.Toast.LENGTH_SHORT).show()
+        if (relaunchInProgress) return
+        relaunchInProgress = true
+
+        val instancePath = game.getStringExtra("instance_dir")
+        if (instancePath.isNullOrBlank()) {
+            relaunchInProgress = false
+            android.widget.Toast.makeText(this, "Restart dibatalkan: folder instance tidak terbaca.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+
+        android.widget.Toast.makeText(this, "Menunggu proses Minecraft berhenti…", android.widget.Toast.LENGTH_SHORT).show()
         val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         val h = android.os.Handler(android.os.Looper.getMainLooper())
-        var tries = 0
+        val deadline = android.os.SystemClock.elapsedRealtime() + 30_000L
         val wait = object : Runnable {
             override fun run() {
-                val alive = am.runningAppProcesses?.any { it.processName.endsWith(":minecraft") } == true
-                if (alive && tries++ < 40) {
-                    h.postDelayed(this, 150L)
+                val alive = am.runningAppProcesses.orEmpty().any {
+                    it.processName == "$packageName:minecraft" || it.processName.endsWith(":minecraft")
+                }
+                if (alive) {
+                    if (android.os.SystemClock.elapsedRealtime() < deadline) {
+                        h.postDelayed(this, 250L)
+                    } else {
+                        relaunchInProgress = false
+                        android.widget.Toast.makeText(
+                            this@ImzyyHubActivity,
+                            "Proses Minecraft belum berhenti. Pack tetap aman; tutup game lalu tekan PLAY dari Hub.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
                     return
                 }
+
                 Thread {
                     try {
-                        game.getStringExtra("instance_dir")?.let { Mrpack.applyPending(File(it)) }
-                    } catch (_: Throwable) {
-                    }
-                    runOnUiThread {
-                        try { startActivity(game) } catch (_: Throwable) { }
+                        val applied = Mrpack.applyPending(File(instancePath))
+                        runOnUiThread {
+                            android.widget.Toast.makeText(
+                                this@ImzyyHubActivity,
+                                if (applied > 0) "${applied} file modpack diterapkan. Membuka ulang game…" else "Membuka ulang Minecraft…",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            try {
+                                startActivity(game)
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(this@ImzyyHubActivity, "Gagal membuka game: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            } finally {
+                                relaunchInProgress = false
+                            }
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            relaunchInProgress = false
+                            android.widget.Toast.makeText(
+                                this@ImzyyHubActivity,
+                                "Modpack tidak diterapkan: ${e.message}. File lama sudah dipertahankan bila pemindahan gagal.",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        }
                     }
                 }.start()
             }
         }
-        h.postDelayed(wait, 300L)
+        h.postDelayed(wait, 350L)
     }
 
     companion object {
@@ -289,7 +333,9 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         val packLoader = listOf("fabric-loader" to "fabric", "quilt-loader" to "quilt", "neoforge" to "neoforge", "forge" to "forge")
             .firstOrNull { info.deps.containsKey(it.first) }?.second
         if (packLoader != null && packLoader != m.loaderType) error("Loader tidak cocok: modpack butuh $packLoader, instance ${m.loaderType ?: "vanilla"}")
-        Mrpack.install(ctx, uri, info, needTarget(), this::say) { progress = it }
+        val staged = File(needTarget(), Mrpack.PENDING)
+        Mrpack.install(ctx, uri, info, staged, this::say) { progress = it }
+        say("✓ Modpack siap. File lama aman; perubahan diterapkan saat PLAY berikutnya setelah Minecraft berhenti.")
     }
 
     fun controlsChanged() {
@@ -427,11 +473,24 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         ctx.startActivity(Intent().setClassName(ctx.packageName, ImzyyConfig.MAIN_ACTIVITY))
     }
 
+    private fun minecraftProcessAlive(): Boolean {
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return am.runningAppProcesses.orEmpty().any {
+            it.processName == "${ctx.packageName}:minecraft" || it.processName.endsWith(":minecraft")
+        }
+    }
+
     /** Blocking (worker thread). Verifies the selected instance's asset objects and re-downloads what is missing. */
     private fun assetJob(): AssetRepair.Report? {
         val m = meta ?: return null
-        runCatching { Mrpack.applyPending(InstanceManager.instanceDir(ctx, m.id)) }.getOrNull()?.takeIf { it > 0 }?.let { say("✓ Modpack tertunda diterapkan ($it file)") }
-        runCatching { TextureCompress.quietSodium(ctx, InstanceManager.instanceDir(ctx, m.id), m.mcVersion) }
+        val instanceDir = InstanceManager.instanceDir(ctx, m.id)
+        val pending = File(File(instanceDir, Mrpack.PENDING), ".imzyy-ready")
+        if (pending.isFile && minecraftProcessAlive()) {
+            error("Minecraft masih berjalan. Tutup game sepenuhnya sebelum menerapkan modpack yang tertunda.")
+        }
+        val appliedMods = Mrpack.applyPending(instanceDir)
+        if (appliedMods > 0) say("✓ Modpack tertunda diterapkan ($appliedMods file); mod lama dicadangkan di .imzyy-backups")
+        runCatching { TextureCompress.quietSodium(ctx, instanceDir, m.mcVersion) }
         runCatching {
             if (ImzyySkinManager.applyToInstance(ctx, InstanceManager.instanceDir(ctx, m.id), m.mcVersion)) {
                 say("✓ Skin lokal IMZYY disinkronkan ke resource pack instance.")
@@ -450,6 +509,12 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
 
     fun repairAssets() = runJob { assetJob() }
 
+    fun repairGraphics() = runJob {
+        val report = GraphicsRepair.repair(needTarget())
+        say("✓ Pemulihan grafis selesai: ${report.settingsChanged} pengaturan dibersihkan, ${report.generatedPacksRemoved} pack IMZYY lama dihapus.")
+        say("Renderer tidak diubah otomatis. Buka Settings > Renderer: coba Zink; bila masih glitch, uji MobileGlues atau Krypton. Hindari GL4ES untuk Sodium/versi modern.")
+    }
+
     fun play() {
         if (smooth) runCatching { meta?.let { FpsTuner.applyValues(InstanceManager.instanceDir(ctx, it.id), FpsTuner.SMOOTH) } }
         if (antiLag) runCatching { meta?.let { FpsTuner.applyValues(InstanceManager.instanceDir(ctx, it.id), FpsTuner.lagValues(tier)) } }
@@ -460,15 +525,17 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         progress = 0f
         scope.launch {
             var block = false
+            var prepFailed = false
             try {
                 val r = withContext(Dispatchers.IO) { assetJob() }
                 block = r != null && r.failed > 0
             } catch (e: Exception) {
-                say("Cek asset dilewati: ${e.message ?: e.javaClass.simpleName}")
+                prepFailed = true
+                say("Persiapan instance gagal: ${e.message ?: e.javaClass.simpleName}. Game tidak dibuka agar file mod tidak rusak.")
             } finally {
                 busy = false
             }
-            if (!block) openLauncher()
+            if (!block && !prepFailed) openLauncher()
         }
     }
 }
@@ -694,6 +761,16 @@ private fun BoostTab(s: HubState) {
         }
         item {
             Reveal(4) {
+                Panel {
+                    Text("Perbaikan render / tekstur", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Untuk layar ungu/magenta, tekstur rusak, atau shader yang gagal: bersihkan hanya override shader dan resource pack buatan IMZYY. Pack pribadi lain tetap dipertahankan.", color = Ink.Sub, fontSize = 12.sp)
+                    Text("Renderer modern: coba Zink terlebih dahulu. Jika belum cocok di GPU Mali, uji MobileGlues atau Krypton. GL4ES ditujukan terutama untuk versi lama dan tidak cocok untuk Sodium/Embeddium.", color = Ink.Sub, fontSize = 12.sp)
+                    InkButton("PERBAIKI RENDER & TEKSTUR", { s.repairGraphics() }, enabled = !s.busy)
+                }
+            }
+        }
+        item {
+            Reveal(5) {
                 Panel {
                     Text("Anti drop FPS & stutter", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text("Kunci FPS stabil, matikan vsync, ringankan update chunk & biome blend. Dipasang ulang otomatis setiap kamu tekan PLAY.", color = Ink.Sub, fontSize = 12.sp)

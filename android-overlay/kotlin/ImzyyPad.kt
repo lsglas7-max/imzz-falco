@@ -649,15 +649,24 @@ internal object PadActions {
      * staged modpack and starts the very same game intent again, so the player lands back in the game.
      */
     fun restart(act: MinecraftActivity) {
+        val originalGameIntent = act.intent?.let { Intent(it) }
+        if (originalGameIntent == null) {
+            Toast.makeText(act, "Tidak bisa restart: data game tidak ditemukan.", Toast.LENGTH_LONG).show()
+            return
+        }
         try {
             val hub = Intent().setClassName(act.packageName, ImzyyHubActivity::class.java.name)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            act.intent?.let { hub.putExtra(ImzyyHubActivity.EXTRA_RELAUNCH, Intent(it)) }
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            hub.putExtra(ImzyyHubActivity.EXTRA_RELAUNCH, originalGameIntent)
             act.startActivity(hub)
-        } catch (_: Throwable) {
+            // Do not remove the task containing the Hub. Let the Hub observe process death before touching mods/.
+            act.finish()
+            Handler(Looper.getMainLooper()).postDelayed({
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }, 1_000L)
+        } catch (e: Throwable) {
+            Toast.makeText(act, "Restart gagal: ${e.message ?: "gagal membuka Hub"}", Toast.LENGTH_LONG).show()
         }
-        act.finishAndRemoveTask()
-        Handler(Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 700L)
     }
 }
 

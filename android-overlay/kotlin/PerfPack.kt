@@ -9,7 +9,7 @@ data class PerfMod(val slug: String, val label: String, val note: String, val de
 /** FPS/performance mod catalogue resolved live from Modrinth for the chosen version + loader. */
 object PerfPack {
     val catalog = listOf(
-        PerfMod("sodium", "Sodium / Embeddium", "Mesin render. Butuh renderer OpenGL 3.2+ (Zink/Krypton/MobileGlues); crash di GL4ES.", true),
+        PerfMod("sodium", "Sodium / Embeddium", "Mesin render. Butuh renderer OpenGL 3.2+ (Zink/MobileGlues/Krypton); jangan aktifkan di GL4ES.", false),
         PerfMod("lithium", "Lithium", "Optimasi logika game & server internal.", true),
         PerfMod("ferrite-core", "FerriteCore", "Hemat RAM.", true),
         PerfMod("modernfix", "ModernFix", "Loading lebih cepat, RAM lebih hemat.", true),

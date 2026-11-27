@@ -171,7 +171,7 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert "ImzyyPad.attach(a)" in (hub_dir / "ImzyyWindow.kt").read_text()
         assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "SMOOTH" in (hub_dir / "FpsTuner.kt").read_text()
         assert "liteAutoTune()" in (hub_dir / "ImzyyHubActivity.kt").read_text()
-        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt"):
+        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt"):
             assert (hub_dir / name).is_file(), name
         hub_source = (hub_dir / "ImzyyHubActivity.kt").read_text()
         account_source = (hub_dir / "ImzyyAccountStore.kt").read_text()
@@ -199,6 +199,24 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
     for kt in (ROOT / "android-overlay/kotlin").glob("*.kt"):
         text = kt.read_text()
         assert text.count("{") == text.count("}") and text.count("(") == text.count(")"), f"unbalanced: {kt.name}"
+    net_src = (ROOT / "android-overlay/kotlin/Net.kt").read_text()
+    assert 'setRequestProperty("Range", "bytes=$resumeAt-")' in net_src, "resumable Range download"
+    assert "for (attempt in 1..4)" in net_src and "75_000" in net_src, "retry/read timeout"
+    assert "ByteArray(256 * 1024)" in net_src and "downloadSha256" in net_src, "buffer + runtime SHA-256"
+    assert "private const val THREADS = 8" in net_src, "asset repair parallelism"
+    runtime_src = (ROOT / "android-overlay/kotlin/ImzyyRuntimes.kt").read_text()
+    assert "Net.downloadSha256(url, tmp, sha)" in runtime_src, "runtime archive uses resumable download"
+    mrpack_src = (ROOT / "android-overlay/kotlin/Mrpack.kt").read_text()
+    assert 'isPendingStage && target.exists()' in mrpack_src and '.imzyy-ready' in mrpack_src, "clear stale pending modpack and write ready marker"
+    assert 'mods-${System.currentTimeMillis()}' in mrpack_src and 'moveDirectory(stagedMods, liveMods)' in mrpack_src, "backup and atomic mods directory replacement"
+    hub_src = (ROOT / "android-overlay/kotlin/ImzyyHubActivity.kt").read_text()
+    assert "30_000L" in hub_src and "Proses Minecraft belum berhenti" in hub_src, "restart waits for game process exit"
+    assert "GraphicsRepair.repair(needTarget())" in hub_src, "graphics repair action is wired"
+    assert "pending.isFile && minecraftProcessAlive()" in hub_src, "Hub PLAY never swaps mods while game process is alive"
+    restart_src = (ROOT / "android-overlay/kotlin/ImzyyPad.kt").read_text()
+    assert "FLAG_ACTIVITY_SINGLE_TOP" in restart_src and "act.finish()" in restart_src, "restart preserves hub task"
+    graphics_src = (ROOT / "android-overlay/kotlin/GraphicsRepair.kt").read_text()
+    assert "IMZYY-Quiet.zip" in graphics_src and "IMZYY-Vanilla-Lite-imzyy-lite.zip" in graphics_src, "graphics repair only targets IMZYY generated packs"
     assert (ROOT / "scripts/build-imzyy.sh").is_file()
     assert not (ROOT / "scripts/build-amethyst.sh").exists()
     assert not (ROOT / "scripts/prepare-amethyst.py").exists()

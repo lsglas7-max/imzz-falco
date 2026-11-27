@@ -28,8 +28,8 @@ object Net {
     private fun open(url: String): HttpURLConnection {
         require(url.startsWith("https://")) { "Hanya HTTPS yang diizinkan: $url" }
         val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 15_000
-        c.readTimeout = 30_000
+        c.connectTimeout = 20_000
+        c.readTimeout = 75_000
         c.instanceFollowRedirects = true
         c.setRequestProperty("User-Agent", UA)
         return c
@@ -59,40 +59,103 @@ object Net {
         }
     }
 
-    /** Downloads [url] to [dest]; the file is only kept when its hash matches. */
+    /** Downloads with resumable HTTP Range, retry/backoff and hash verification. */
     fun download(url: String, dest: File, sha512: String?, sha1: String?, onBytes: (Long) -> Unit = {}) {
         require(sha512 != null || sha1 != null) { "File tanpa hash ditolak: ${dest.name}" }
+        downloadVerified(url, dest, if (sha512 != null) "SHA-512" else "SHA-1", (sha512 ?: sha1)!!.lowercase(), onBytes)
+    }
+
+    /** SHA-256 variant used for downloadable Java runtimes. */
+    fun downloadSha256(url: String, dest: File, sha256: String, onBytes: (Long) -> Unit = {}) {
+        downloadVerified(url, dest, "SHA-256", sha256.lowercase(), onBytes)
+    }
+
+    private fun downloadVerified(url: String, dest: File, algorithm: String, expected: String, onBytes: (Long) -> Unit) {
         dest.parentFile?.mkdirs()
-        val tmp = File(dest.parentFile, dest.name + ".part")
-        val c = open(url)
-        try {
-            val code = c.responseCode
-            if (code !in 200..299) throw HttpFailure(code, url)
-            val md = MessageDigest.getInstance(if (sha512 != null) "SHA-512" else "SHA-1")
-            c.inputStream.use { input ->
-                FileOutputStream(tmp).use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        md.update(buf, 0, n)
-                        onBytes(n.toLong())
+        val part = File(dest.parentFile, dest.name + ".part")
+        var last: Exception? = null
+        for (attempt in 1..4) {
+            var c: HttpURLConnection? = null
+            try {
+                val resumeAt = if (part.isFile) part.length() else 0L
+                c = open(url)
+                c.connectTimeout = 20_000
+                c.readTimeout = 75_000
+                if (resumeAt > 0L) c.setRequestProperty("Range", "bytes=$resumeAt-")
+                val code = c.responseCode
+                if (code == 416 && resumeAt > 0L) {
+                    if (verify(part, algorithm, expected)) {
+                        promote(part, dest)
+                        return
+                    }
+                    part.delete()
+                    throw java.io.IOException("Range tidak valid; mengulang dari awal")
+                }
+                if (code !in 200..299) throw HttpFailure(code, url)
+                val append = code == 206 && resumeAt > 0L
+                if (code == 206 && resumeAt == 0L) throw java.io.IOException("Server mengirim partial response tanpa Range")
+                if (append) {
+                    val range = c.getHeaderField("Content-Range") ?: ""
+                    if (!range.startsWith("bytes $resumeAt-")) {
+                        part.delete()
+                        throw java.io.IOException("Content-Range tidak cocok; unduhan diulang dari awal")
                     }
                 }
+                if (!append && part.exists()) part.delete()
+
+                val md = MessageDigest.getInstance(algorithm)
+                if (append) part.inputStream().use { existing ->
+                    val buf = ByteArray(128 * 1024)
+                    while (true) { val n = existing.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+                    onBytes(resumeAt)
+                }
+                c.inputStream.use { input ->
+                    FileOutputStream(part, append).use { out ->
+                        val buf = ByteArray(256 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            md.update(buf, 0, n)
+                            onBytes(n.toLong())
+                        }
+                        out.fd.sync()
+                    }
+                }
+                val got = md.digest().joinToString("") { "%02x".format(it) }
+                if (got != expected) {
+                    part.delete()
+                    throw java.io.IOException("Hash ${dest.name} tidak cocok; unduhan diulang")
+                }
+                promote(part, dest)
+                return
+            } catch (e: Exception) {
+                last = e
+                // Keep partial bytes for resumable retry; hash mismatch explicitly clears them above.
+                if (attempt < 4) try { Thread.sleep(700L * attempt) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); throw e }
+            } finally {
+                c?.disconnect()
             }
-            val got = md.digest().joinToString("") { "%02x".format(it) }
-            val want = (sha512 ?: sha1)!!.lowercase()
-            if (got != want) error("Hash tidak cocok untuk ${dest.name}")
-            if (dest.exists()) dest.delete()
-            if (!tmp.renameTo(dest)) {
-                tmp.copyTo(dest, overwrite = true)
-            }
-        } finally {
-            c.disconnect()
-            if (tmp.exists()) tmp.delete()
         }
+        throw java.io.IOException("Gagal mengunduh ${dest.name} setelah 4 percobaan: ${last?.message}", last)
     }
+
+    private fun verify(file: File, algorithm: String, expected: String): Boolean {
+        if (!file.isFile) return false
+        val md = MessageDigest.getInstance(algorithm)
+        file.inputStream().use { input ->
+            val buf = ByteArray(128 * 1024)
+            while (true) { val n = input.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) } == expected
+    }
+
+    private fun promote(part: File, dest: File) {
+        if (dest.exists()) dest.delete()
+        if (!part.renameTo(dest)) part.copyTo(dest, overwrite = true)
+        if (part.exists()) part.delete()
+    }
+
 }
 
 /**
@@ -103,7 +166,7 @@ object Net {
  */
 object AssetRepair {
     private const val HOST = "https://resources.download.minecraft.net/"
-    private const val THREADS = 6
+    private const val THREADS = 8
     private const val ATTEMPTS = 3
 
     class Report(val total: Int, val bad: Int, val fixed: Int, val failed: Int, val error: String?, val note: String?)

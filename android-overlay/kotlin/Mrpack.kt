@@ -108,36 +108,82 @@ object Mrpack {
      * Moves a staged modpack (see in-game MODS) into the instance. Only call while the game process is NOT running:
      * replacing mod jars under a live JVM crashes it. Returns the number of files applied.
      */
+    private fun moveDirectory(source: File, destination: File) {
+        destination.parentFile?.mkdirs()
+        if (source.renameTo(destination)) return
+        source.copyRecursively(destination, overwrite = true)
+        source.deleteRecursively()
+    }
+
+    /**
+     * Applies a completed staged pack only after the game process has exited. The previous mods folder is
+     * backed up first, then replaced as a unit so old jar versions cannot remain beside new pack versions.
+     * On failure, the previous mods folder is restored and the pending directory is retained for retry.
+     */
     fun applyPending(instance: File): Int {
         val src = File(instance, PENDING)
-        if (!src.isDirectory) return 0
+        if (!src.isDirectory || !File(src, ".imzyy-ready").isFile) return 0
+        val instanceRoot = instance.canonicalFile
+        val stageRoot = src.canonicalFile
+        require(stageRoot.path.startsWith(instanceRoot.path + File.separator)) { "Folder pending tidak valid" }
+
+        // Apply configs/resource overrides first. Keep live mods untouched if one of these copies fails.
         var n = 0
         src.walkTopDown().filter { it.isFile }.toList().forEach { f ->
-            val rel = f.relativeTo(src).path
-            val dest = File(instance, rel)
+            val rel = f.relativeTo(src).invariantSeparatorsPath
+            if (rel == ".imzyy-ready" || rel == "mods" || rel.startsWith("mods/")) return@forEach
+            val dest = File(instanceRoot, rel).canonicalFile
+            require(dest.path.startsWith(instanceRoot.path + File.separator)) { "Path pending keluar dari instance: $rel" }
             if (rel in KEEP && dest.exists()) {
                 f.delete()
                 return@forEach
             }
             dest.parentFile?.mkdirs()
-            if (dest.exists()) dest.delete()
+            if (dest.exists() && !dest.delete()) error("Tidak bisa mengganti ${dest.name}")
             if (!f.renameTo(dest)) {
                 f.copyTo(dest, overwrite = true)
                 f.delete()
             }
             n++
         }
+
+        // Replace mods as one directory only after every staged file has passed the checks above.
+        val stagedMods = File(src, "mods")
+        val liveMods = File(instance, "mods")
+        val backupRoot = File(instance, ".imzyy-backups")
+        var backupMods: File? = null
+        if (stagedMods.isDirectory) {
+            if (liveMods.exists()) {
+                backupRoot.mkdirs()
+                backupMods = File(backupRoot, "mods-${System.currentTimeMillis()}")
+                moveDirectory(liveMods, backupMods!!)
+            }
+            try {
+                moveDirectory(stagedMods, liveMods)
+                n += liveMods.walkTopDown().count { it.isFile }
+            } catch (e: Exception) {
+                liveMods.deleteRecursively()
+                if (backupMods?.exists() == true) moveDirectory(backupMods!!, liveMods)
+                throw IllegalStateException("Gagal mengganti folder mods; cadangan lama dipulihkan: ${e.message}", e)
+            }
+        }
+
         src.deleteRecursively()
+        // Keep the two newest safety backups to avoid unbounded storage growth.
+        backupRoot.listFiles()?.filter { it.isDirectory && it.name.startsWith("mods-") }
+            ?.sortedByDescending { it.lastModified() }?.drop(2)?.forEach { it.deleteRecursively() }
         return n
     }
 
     fun install(ctx: Context, uri: Uri, info: MrInfo, target: File, say: (String) -> Unit, onProgress: (Float) -> Unit) {
+        val isPendingStage = target.name == PENDING
+        if (isPendingStage && target.exists()) target.deleteRecursively()
         target.mkdirs()
         val root = target.canonicalFile
         val todo = info.files.filter { !it.clientUnsupported }
         say("Mengunduh ${todo.size} file, total ${Net.fmtBytes(todo.sumOf { it.size })} (verifikasi hash)…")
 
-        val pool = Executors.newFixedThreadPool(4)
+        val pool = Executors.newFixedThreadPool(6)
         val done = AtomicInteger(0)
         val failures = ConcurrentLinkedQueue<String>()
         val tasks = todo.map { f ->
@@ -183,6 +229,10 @@ object Mrpack {
                     e = zin.nextEntry
                 }
             }
+        }
+        if (isPendingStage) {
+            File(target, "mods").mkdirs()
+            File(target, ".imzyy-ready").writeText("ready\n")
         }
         onProgress(1f)
         say("✓ Selesai: ${todo.size} file + $copied override")

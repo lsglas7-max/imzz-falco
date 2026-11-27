@@ -2,8 +2,6 @@ package id.imzyy.xl
 
 import android.content.Context
 import java.io.File
-import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 import org.json.JSONObject
 
@@ -55,25 +53,13 @@ object ImzyyRuntimes {
         val sha = entry.getString("sha256").lowercase()
         val total = entry.optLong("size")
         val url = "https://github.com/${ImzyyConfig.GITHUB_REPO}/releases/download/runtimes/jre$major.zip"
-        val tmp = File(ctx.cacheDir, "jre$major.zip.part")
+        val tmp = File(ctx.cacheDir, "jre$major.zip")
         try {
-            val md = MessageDigest.getInstance("SHA-256")
             var done = 0L
-            Net.stream(url) { input ->
-                FileOutputStream(tmp).use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        md.update(buf, 0, n)
-                        done += n
-                        if (total > 0) onProgress((done.toFloat() / total * 0.8f).coerceAtMost(0.8f))
-                    }
-                }
+            Net.downloadSha256(url, tmp, sha) { n ->
+                done += n
+                if (total > 0) onProgress((done.toFloat() / total * 0.8f).coerceAtMost(0.8f))
             }
-            val got = md.digest().joinToString("") { "%02x".format(it) }
-            if (got != sha) error("Hash runtime Java $major tidak cocok (unduhan rusak atau versi APK beda)")
 
             val target = runtimeDir(ctx, major)
             target.deleteRecursively()
@@ -95,11 +81,11 @@ object ImzyyRuntimes {
                 }
             }
             onProgress(1f)
+            tmp.delete()
         } catch (ex: Exception) {
             runtimeDir(ctx, major).deleteRecursively()
+            // Keep verified archive or .part file so a retry can continue instead of restarting.
             throw ex
-        } finally {
-            tmp.delete()
         }
     }
 }

@@ -35,7 +35,8 @@ Lite is a build variant of the same project (`IMZYY_VARIANT=lite`, workflow `and
   - **MODS**: search Modrinth filtered by version/loader and install into the instance.
   - **IMPORT**: `.mrpack` (Modrinth format v1) importer: hash-verified parallel downloads from allow-listed hosts, zip-slip-safe overrides/client-overrides extraction. Create the matching instance (version + loader) in the launcher first, then pick its folder.
   - **GitHub card**: repo/releases buttons and a "latest release" check (needs `IMZYY_GITHUB_REPO`, set automatically by CI).
-- Sodium/Embeddium need an OpenGL 3.2+ path (Zink, Krypton, MobileGlues); they crash on GL4ES. Switch the renderer in the existing renderer settings.
+- Sodium/Embeddium need an OpenGL 3.2+ path (Zink, Krypton, MobileGlues); do not use them with GL4ES. Sodium is now opt-in rather than preselected so a new FPS pack does not silently install an incompatible renderer mod.
+- **Graphics repair**: the Hub > BOOST tab can clear shader selection and only the two IMZYY-generated texture/language packs when a world shows magenta textures. Custom resource packs are kept. The engine renderer is not forcibly changed; select it in the existing renderer settings.
 - **KONTROL tab + in-game hooks** (patched into the real upstream input code, verified against its source):
   - camera sensitivity (replaces the fixed 1.5 constant), drag slop and long-press delay, all live-tunable;
   - **virtual mouse / touchpad mode** for menus and inventory: drag moves a visible cursor, tap = left click, long press or two-finger tap = right click (gameplay keeps normal camera control);
@@ -82,6 +83,17 @@ Do not stack multiple renderer drivers or copy random JVM flags from PC guides. 
 - **Local skin scope:** the PNG is installed as an enabled resource pack in the chosen instance, overriding the default local Steve/Alex fallback texture. It is not uploaded to Mojang/Microsoft or a skin server, and it does not replace authenticated skins already loaded for online players. Use a 64×64 PNG and select the matching Classic or Slim model.
 - The upstream Android namespace/application ID are intentionally preserved for now because OAuth callback registration may depend on that identity. The visible app branding and artifact name are IMZYY XL Launcher.
 
+## Download reliability
+
+- HTTPS downloads use a larger 256 KiB streaming buffer, 75-second read timeout, up to four attempts with backoff, and HTTP Range resume when the CDN supports it.
+- Every resumed file is re-hashed from the beginning and verified against the supplied SHA-1/SHA-512/SHA-256 before it is promoted from `.part` to its final name. Hash failure discards the partial file.
+- Asset repair uses up to eight concurrent downloads; Modrinth `.mrpack` uses up to six.
+- Resume improves recovery from interrupted transfers; it cannot make a slow server or network inherently faster, and servers that ignore Range restart that one file from the beginning.
+
+## Magenta / broken rendering
+
+The upstream engine documents Zink as the modern Vulkan-to-OpenGL path, Krypton as GLES 3.x, GL4ES as a compatibility path mainly for old versions, and MobileGlues as another OpenGL/GLES path. Sodium/Embeddium require a modern OpenGL path and are not compatible with GL4ES. For Minecraft 1.17+, test Zink first; on Mali hardware Zink may use the Panfrost fallback. If artifacts remain, test MobileGlues or Krypton one at a time. The BOOST > Perbaikan render / tekstur action clears IMZYY-generated visual overrides, but it cannot repair a broken GPU driver or automatically choose a renderer.
+
 ## Build with GitHub Actions
 
 1. Upload the contents of this ZIP to the root of a GitHub repository.
@@ -127,6 +139,7 @@ Upstream engine: https://github.com/FlameLaunchers/FlameLauncher-Android
 - **MODS (in-game)**: search Modrinth modpacks that match the running instance (Minecraft version + loader), install them with hash verification, then use RELOAD TEKSTUR (F3+T), RELOAD CHUNK (F3+A) or RESTART GAME. The modpack is staged in `.imzyy-pending` (the running JVM's mod jars are never touched) and applied by RESTART GAME, which relaunches the same game automatically; it is also applied on the next Hub PLAY. Reload only refreshes resources and rendering.
 - The upstream "Release Notes" menu and its GitHub update popup are removed at patch time.
 - **Anti lag masuk world** (BOOST tab): lowers render/simulation distance per device tier (never raises a value you already set lower) and cheapens chunk updates, particles, shadows and biome blend; re-applied on every PLAY.
-- **Modpack safety**: a modpack never overwrites your `options.txt`, `optionsof.txt`, `optionsshaders.txt` or `servers.dat` (language, keybinds and graphics stay yours). Fabric modpacks without Mod Menu get it added automatically (title-screen "Mods" button); Hub > MODS has a manual "PASANG MOD MENU".
+- **Modpack safety**: a modpack never overwrites your `options.txt`, `optionsof.txt`, `optionsshaders.txt` or `servers.dat` (language, keybinds and graphics stay yours). In-game and Hub `.mrpack` installs are staged and applied only after the Minecraft process exits. The previous `mods/` directory is backed up under `.imzyy-backups/` before it is replaced, preventing old/new jar versions from being loaded together. Fabric modpacks without Mod Menu get it added automatically (title-screen "Mods" button); Hub > MODS has a manual "PASANG MOD MENU".
+- **Restart safety**: RESTART GAME waits up to 30 seconds for the isolated game process to end. It never edits `mods/` while the JVM is still alive; on timeout the staged pack is left untouched and the player can close Minecraft and press PLAY from the Hub.
 - **Sodium on Android**: Sodium 0.5.x prints a red "PojavLauncher is not supported" console message because of the POJAV_* environment this engine needs. On PLAY, a tiny lang-only pack (`resourcepacks/IMZYY-Quiet.zip`) blanks that one message. It only hides the notice; it does not change how Sodium behaves. Newer Sodium (0.6+) throws instead of warning and cannot be hidden this way.
 - **Bahasa game** (BOOST tab): INDONESIA / ENGLISH chips write `lang` into the instance options.txt without opening the in-game menu.
