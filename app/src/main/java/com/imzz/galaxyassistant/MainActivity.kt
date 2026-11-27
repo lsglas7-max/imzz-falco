@@ -38,7 +38,6 @@ import com.imzz.galaxyassistant.apps.GameNavigationEngine
 import com.imzz.galaxyassistant.apps.PackageResolver
 import com.imzz.galaxyassistant.autopilot.AutopilotEngine
 import com.imzz.galaxyassistant.autopilot.AiVisionApiClient
-import com.imzz.galaxyassistant.files.PackReader
 import com.imzz.galaxyassistant.mascot.CatBrain
 import com.imzz.galaxyassistant.mascot.CatMascotView
 import com.imzz.galaxyassistant.mascot.MeowSynth
@@ -79,10 +78,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val packPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) loadPack(uri)
-    }
-
     private val voiceLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val words = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
@@ -99,7 +94,7 @@ class MainActivity : AppCompatActivity() {
             when (intent?.action) {
                 ScreenCaptureService.ACTION_OCR_UPDATE -> {
                     latestOcr = intent.getStringExtra("text").orEmpty()
-                    AutopilotEngine.updateOcr(latestOcr, intent.getStringExtra("layout").orEmpty(), intent.getStringExtra("scene").orEmpty())
+                    AutopilotEngine.updateOcr(latestOcr, intent.getStringExtra("layout").orEmpty())
                     screenText.text = if (latestOcr.isBlank()) "Belum ada teks yang terbaca dari layar." else latestOcr.take(850)
                 }
                 ScreenCaptureService.ACTION_CAPTURE_STATUS -> updatePermissionStatus()
@@ -325,7 +320,6 @@ class MainActivity : AppCompatActivity() {
         appendLog("YOU: $trimmed")
         commandInput.setText("")
         val lower = command.lowercase(Locale.ROOT)
-        if (handlePackCommand(command, lower)) return
 
         when {
             lower in listOf("stop", "berhenti", "berhenti dulu", "stop dulu", "emergency stop") -> {
@@ -408,19 +402,14 @@ class MainActivity : AppCompatActivity() {
             cat.say("Meow~", 1600L)
         }, weightParams(left = 8))
         catCard.addView(buttons, marginParams(top = 6))
-
-        val fileButtons = row()
-        fileButtons.addView(actionButton("📦 BUKA ZIP / FILE") { packPicker.launch(arrayOf("*/*")) }, weightParams())
-        fileButtons.addView(actionButton("📃 DAFTAR FILE") { showPackList() }, weightParams(left = 8))
-        catCard.addView(fileButtons, marginParams(top = 8))
         catCard.addView(
-            label("Usap kepala ${CatBrain.NAME}, ketuk badannya, atau ketik: \"skylen, joget\". Setelah buka ZIP: \"baca README.md\", \"baca lanjut\", \"daftar file\"", 10, Color.rgb(116, 132, 159), false)
+            label("Usap kepala ${CatBrain.NAME}, ketuk badannya, atau ketik: \"skylen, joget\" / \"skylen, apa kabar?\"", 10, Color.rgb(116, 132, 159), false)
                 .apply { setPadding(dp(4), dp(8), dp(4), 0) }
         )
         return catCard
     }
 
-    private fun showLongAnswer(full: String, title: String = "${CatBrain.NAME} menjawab") {
+    private fun showLongAnswer(full: String) {
         val body = TextView(this).apply {
             text = full
             textSize = 13f
@@ -428,7 +417,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
         AlertDialog.Builder(this)
-            .setTitle(title)
+            .setTitle("${CatBrain.NAME} menjawab")
             .setView(ScrollView(this).apply { addView(body) })
             .setPositiveButton("Tutup", null)
             .setNeutralButton("Salin") { _, _ ->
@@ -437,77 +426,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Jawaban disalin.", Toast.LENGTH_SHORT).show()
             }
             .show()
-    }
-
-    // ---------------------------------------------------------------- ZIP / FILE untuk Skylen
-
-    private fun loadPack(uri: android.net.Uri) {
-        cat.setMood(CatMascotView.Mood.THINKING, 20_000L)
-        cat.say("Bentar bre, gw bongkar dulu isinya...", 6000L)
-        Thread {
-            try {
-                val opened = PackReader.open(this, uri)
-                val (display, message) = PackReader.buildAnalysisMessage()
-                runOnUiThread {
-                    appendLog("FILE: ${opened.label} (${opened.items.size} file)")
-                    chatWithCat(message, display)
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    cat.setMood(CatMascotView.Mood.SAD, 3500L)
-                    val reason = e.message?.take(140) ?: "tidak diketahui"
-                    appendLog("FILE gagal: $reason")
-                    VoiceFeedback.speak("Gagal buka file bre. $reason", decorate = false)
-                }
-            }
-        }.start()
-    }
-
-    private fun showPackList() {
-        if (PackReader.session == null) {
-            VoiceFeedback.speak("Belum ada ZIP yang dibuka bre. Tekan tombol buka ZIP dulu.", decorate = false)
-            return
-        }
-        showLongAnswer(PackReader.fullListing(), "Isi file")
-    }
-
-    /** Perintah teks setelah ZIP dibuka. True kalau perintahnya ditangani. */
-    private fun handlePackCommand(command: String, lower: String): Boolean {
-        if (lower in listOf("daftar file", "list file", "isi zip", "isi file")) {
-            showPackList()
-            return true
-        }
-        val nextCommand = lower in listOf("baca lanjut", "lanjut baca", "baca terus")
-        val match = Regex("^(?:baca|bacain|lihat isi)\\s+(.+)$", RegexOption.IGNORE_CASE).find(command)
-        if (!nextCommand && match == null) return false
-        if (PackReader.session == null) {
-            VoiceFeedback.speak("Buka ZIP atau file dulu bre, tekan tombol buka ZIP.", decorate = false)
-            return true
-        }
-        cat.setMood(CatMascotView.Mood.THINKING, 15_000L)
-        Thread {
-            val result = if (nextCommand) PackReader.readNext() else PackReader.read(match!!.groupValues[1])
-            runOnUiThread {
-                when (result) {
-                    is PackReader.ReadResult.Text -> {
-                        val part = if (result.offset > 0) " (lanjutan)" else ""
-                        val prompt = "Ini isi file ${result.name}$part:\n${result.text}\n\nJelaskan fungsinya, cari bug atau masalah, dan kasih saran perbaikan."
-                        if (result.more) appendLog("Masih ada bagian berikutnya, ketik: baca lanjut")
-                        chatWithCat(prompt, "baca ${result.name}$part")
-                    }
-                    is PackReader.ReadResult.Ambiguous -> {
-                        cat.setMood(CatMascotView.Mood.SURPRISED, 3000L)
-                        VoiceFeedback.speak("Ada beberapa file yang cocok bre, sebut lebih lengkap.", decorate = false)
-                        showLongAnswer(result.matches.joinToString("\n"), "File yang cocok")
-                    }
-                    is PackReader.ReadResult.Fail -> {
-                        cat.setMood(CatMascotView.Mood.SAD, 3000L)
-                        VoiceFeedback.speak(result.reason, decorate = false)
-                    }
-                }
-            }
-        }.start()
-        return true
     }
 
     private fun setupCat() {
@@ -554,11 +472,11 @@ class MainActivity : AppCompatActivity() {
         if (state == AutopilotEngine.State.WAITING_FOR_USER) cat.playAction(CatMascotView.Action.HEAD_TILT)
     }
 
-    private fun chatWithCat(message: String, display: String = message) {
+    private fun chatWithCat(message: String) {
         val instant = CatBrain.quickAction(message)
         if (instant != null) cat.playAction(instant)
         cat.setMood(if (instant == CatMascotView.Action.DANCE) CatMascotView.Mood.HAPPY else CatMascotView.Mood.THINKING, 7000L)
-        catHistory.add("user" to display.take(200))
+        catHistory.add("user" to message)
         CatBrain.chat(message, catHistory.takeLast(6)) { reply ->
             runOnUiThread {
                 catHistory.add("cat" to reply.text)
@@ -665,53 +583,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun visionEnabled(): Boolean =
-        getSharedPreferences("skylen", Context.MODE_PRIVATE).getBoolean("vision_upload", false)
-
-    private fun setVisionEnabled(on: Boolean) {
-        getSharedPreferences("skylen", Context.MODE_PRIVATE).edit().putBoolean("vision_upload", on).apply()
-        appendLog("VISION ${if (on) "AKTIF" else "MATI"}")
-        if (::cat.isInitialized) {
-            cat.setMood(if (on) CatMascotView.Mood.ALERT else CatMascotView.Mood.IDLE, 2500L)
-            cat.say(if (on) "Mata vision nyala bre! Gw bisa lihat layar sekarang." else "Mata vision dimatiin. Gw balik baca teks aja.", 3500L)
-        }
-    }
-
-    private fun toggleVision() {
-        if (visionEnabled()) {
-            setVisionEnabled(false)
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Nyalakan Vision?")
-            .setMessage(
-                "API vision menerima gambar lewat link publik. Kalau dinyalakan, tiap langkah Autopilot akan:\n\n" +
-                    "• mengunggah screenshot layar (diperkecil) ke host file sementara (uguu.se, cadangan tmpfiles.org);\n" +
-                    "• mengirim link-nya ke API vision kyio.\n\n" +
-                    "Selama file ada di host, siapa pun yang tahu link-nya bisa membukanya, dan host serta kyio menerima isi layar lu. " +
-                    "Host seperti ini biasanya menghapus file dalam beberapa jam, tapi itu belum gw verifikasi.\n\n" +
-                    "Layar yang terdeteksi login, OTP, pembayaran, atau kata sandi TIDAK diunggah. Layar lain (chat, foto, notifikasi) bisa ikut terunggah, " +
-                    "jadi jangan nyalakan saat ada hal pribadi di layar."
-            )
-            .setPositiveButton("Saya mengerti, nyalakan") { _, _ -> setVisionEnabled(true) }
-            .setNegativeButton("Batal", null)
-            .show()
-    }
-
     private fun showAiSettings() {
         fun host(value: String): String =
-            if (value.isBlank()) "belum diisi" else runCatching { java.net.URL(value.replace("{q}", "x").replace("{sid}", "x").replace("{url}", "x")).host }.getOrDefault("URL tidak valid")
+            if (value.isBlank()) "belum diisi" else runCatching { java.net.URL(value).host }.getOrDefault("URL tidak valid")
         val count = AiVisionApiClient.endpoints().size
-        val on = visionEnabled()
         AlertDialog.Builder(this)
             .setTitle("AI API STATUS")
             .setMessage(
                 if (count > 0) {
                     "$count endpoint aktif.\n\n" +
-                        "Vision (screenshot): ${if (on) "AKTIF" else "MATI (default)"}  •  ${host(AiVisionApiClient.visionEndpoint())}\n" +
                         "API #1 (Autopilot, baca layar lewat OCR): ${host(AiVisionApiClient.endpoint())}\n" +
                         "API #2 (cadangan + ngobrol ${CatBrain.NAME}): ${host(AiVisionApiClient.endpoint2())}\n\n" +
-                        "Autopilot: vision (kalau AKTIF) -> API #1 -> API #2. Kalau vision gagal atau layarnya sensitif, otomatis pakai OCR. " +
+                        "Autopilot memakai API #1 lalu pindah otomatis ke API #2 kalau gagal. " +
                         "${CatBrain.NAME} ngobrol lewat API #2 dulu, lalu API #1, dan kalau dua-duanya mati dia tetap jawab offline. " +
                         "Tidak ada kolom API key di aplikasi."
                 } else {
@@ -721,7 +604,6 @@ class MainActivity : AppCompatActivity() {
                 }
             )
             .setPositiveButton("OK", null)
-            .setNeutralButton(if (on) "👁️ Matikan Vision" else "👁️ Nyalakan Vision") { _, _ -> toggleVision() }
             .show()
     }
 

@@ -26,58 +26,32 @@ object AiVisionApiClient {
     /** API #2 — cadangan Autopilot, dan dipakai lebih dulu untuk ngobrol dengan Skylen. */
     fun endpoint2(): String = BuildConfig.AI_API_URL_2.trim()
 
-    /**
-     * Proxy vision (folder proxy/): endpoint JSON yang bisa menerima screenshot. Kalau diisi, Autopilot
-     * mencobanya PERTAMA, lalu jatuh ke API #1 dan #2 (teks/OCR) kalau gagal. Kosong = tidak dipakai.
-     */
-    fun visionEndpoint(): String = BuildConfig.AI_VISION_URL.trim()
-
     private fun isValid(value: String): Boolean {
         if (value.isBlank()) return false
         return runCatching {
-            val url = URL(value.replace("{q}", "x").replace("{sid}", "x").replace("{url}", "x"))
+            val url = URL(value)
             url.protocol.equals("https", ignoreCase = true) ||
                 (url.protocol.equals("http", ignoreCase = true) &&
-                    (url.host.equals("10.0.2.2", true) || url.host.equals("localhost", true) || url.host == "127.0.0.1"))
+                    (url.host.equals("10.0.2.2", true) || url.host.equals("localhost", true)))
         }.getOrDefault(false)
     }
 
-    /**
-     * Urutan percobaan. Autopilot: proxy vision -> API #1 -> API #2.
-     * [preferSecondary] (chat Skylen): API #2 -> API #1 -> proxy vision.
-     */
+    /** Daftar endpoint valid. [preferSecondary] = true -> API #2 dicoba lebih dulu (dipakai untuk chat Skylen). */
     fun endpoints(preferSecondary: Boolean = false): List<String> {
-        val ordered = if (preferSecondary) listOf(endpoint2(), endpoint(), visionEndpoint())
-        else listOf(visionEndpoint(), endpoint(), endpoint2())
-        return ordered.filter { isValid(it) }.distinct()
+        val list = listOf(endpoint(), endpoint2()).filter { isValid(it) }.distinct()
+        return if (preferSecondary) list.reversed() else list
     }
 
     fun isConfigured(): Boolean = endpoints().isNotEmpty()
 
-    /** Template API vision: URL berisi {q}, {sid}, {url}. Gambar dikirim sebagai link publik (lihat ImageHost). */
-    fun isVisionTemplate(url: String): Boolean = url.contains("{url}")
-
     /** Endpoint gaya "…?q=" (GET, teks saja). */
-    fun isTextEndpoint(url: String): Boolean = url.contains("?q=") || url.contains("&q=")
+    fun isTextEndpoint(url: String): Boolean = url.contains("q=")
 
     // ------------------------------------------------------------------ endpoint teks (GET ?q=)
 
     /** Kirim [prompt] ke endpoint teks dan kembalikan teks jawabannya (JSON dibongkar otomatis). */
-    fun askText(target: String, prompt: String, readTimeoutMs: Int = 60_000): String =
-        getText(target + URLEncoder.encode(prompt, "UTF-8"), readTimeoutMs)
-
-    /** Panggil API vision: unggah screenshot (diperkecil) ke host sementara, lalu kirim link-nya lewat {url}. */
-    private fun askVision(template: String, prompt: String, frame: File): String {
-        val jpeg = encodeJpeg(frame, 720, 70)
-        val imageUrl = ImageHost.upload(jpeg)
-        val full = template
-            .replace("{q}", URLEncoder.encode(prompt, "UTF-8"))
-            .replace("{sid}", URLEncoder.encode("sky" + System.currentTimeMillis(), "UTF-8"))
-            .replace("{url}", URLEncoder.encode(imageUrl, "UTF-8"))
-        return getText(full, 90_000)
-    }
-
-    private fun getText(full: String, readTimeoutMs: Int): String {
+    fun askText(target: String, prompt: String, readTimeoutMs: Int = 60_000): String {
+        val full = target + URLEncoder.encode(prompt, "UTF-8")
         val connection = (URL(full).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 20_000
@@ -134,58 +108,36 @@ object AiVisionApiClient {
 
     // ------------------------------------------------------------------ Autopilot
 
-    /**
-     * [allowImage] = pengguna sudah mengizinkan screenshot dikirim ke layanan luar (API vision / proxy).
-     * Layar yang terdeteksi login/pembayaran/OTP tidak pernah dikirim sebagai gambar.
-     */
-    fun plan(
-        frame: File, ocrText: String, layout: String, scene: String,
-        goal: String, previousActions: String, allowImage: Boolean = false
-    ): PlannedAction {
+    fun plan(frame: File, ocrText: String, layout: String, goal: String, previousActions: String): PlannedAction {
         check(isConfigured()) {
             "AI API belum dikonfigurasi. Isi galaxyAiApiUrl dengan endpoint API yang sudah lu punya."
         }
-        val imageOk = allowImage && !ScreenUnderstanding.isSensitiveScreen(ocrText)
-        val targets = endpoints().filter { isTextEndpoint(it) || imageOk }
-        check(targets.isNotEmpty()) { "Tidak ada endpoint yang boleh dipakai saat ini." }
-        val jsonBody by lazy { buildJsonBody(frame, ocrText, layout, scene, goal, previousActions) }
+        val jsonBody by lazy { buildJsonBody(frame, ocrText, layout, goal, previousActions) }
 
         var lastError: Exception? = null
-        for (target in targets) {
+        for (target in endpoints()) {
             try {
-                return when {
-                    isVisionTemplate(target) ->
-                        parsePlanText(askVision(target, buildPlanPrompt(ocrText, layout, scene, goal, previousActions, true), frame))
-                    isTextEndpoint(target) ->
-                        parsePlanText(askText(target, buildPlanPrompt(ocrText, layout, scene, goal, previousActions, false), 70_000))
-                    else -> parseAction(postJson(target, jsonBody, 45_000))
+                return if (isTextEndpoint(target)) {
+                    parsePlanText(askText(target, buildPlanPrompt(ocrText, layout, goal, previousActions), 70_000))
+                } else {
+                    parseAction(postJson(target, jsonBody, 45_000))
                 }
             } catch (error: Exception) {
-                lastError = error // coba endpoint berikutnya (failover)
+                lastError = error // coba API berikutnya (failover)
             }
         }
         throw lastError ?: IllegalStateException("AI API tidak merespons.")
     }
 
-    private fun buildPlanPrompt(ocrText: String, layout: String, scene: String, goal: String, previousActions: String, hasImage: Boolean): String {
-        val screen = layout.ifBlank { ocrText }.take(1100)
+    private fun buildPlanPrompt(ocrText: String, layout: String, goal: String, previousActions: String): String {
+        val screen = layout.ifBlank { ocrText }.take(1500)
         return buildString {
             append("Kamu adalah Skylen, AI yang mengendalikan layar HP Android lewat tap dan swipe. ")
-            if (hasImage) {
-                append("Kamu diberi SCREENSHOT layar (gambar terlampir) plus teks OCR dengan koordinat titik tengahnya ")
-                append("(format \"x,y teks\"). Semua koordinat x,y pakai skala 0.0 sampai 1.0 relatif lebar/tinggi layar, 0,0 = kiri atas.\n")
-            } else {
-                append("Kamu TIDAK bisa melihat gambar; kamu hanya diberi teks layar hasil OCR beserta koordinat titik tengahnya ")
-                append("(format \"x,y teks\", x dan y 0.0 sampai 1.0, 0,0 = kiri atas).\n")
-            }
+            append("Kamu TIDAK bisa melihat gambar; kamu hanya diberi teks layar hasil OCR beserta koordinat titik tengahnya ")
+            append("(format \"x,y teks\", x dan y 0.0 sampai 1.0, 0,0 = kiri atas).\n")
             append("TUJUAN: ").append(goal.take(400)).append('\n')
             append("AKSI SEBELUMNYA:\n").append(previousActions.take(500).ifBlank { "(belum ada)" }).append('\n')
             append("LAYAR SEKARANG:\n").append(screen.ifBlank { "(tidak ada teks terbaca; mungkin game/video tanpa teks)" }).append('\n')
-            if (scene.isNotBlank()) {
-                append("OBJEK MENCOLOK (perkiraan kasar dari warna di layar, bukan pengenalan gambar):\n")
-                append(scene.take(700)).append('\n')
-                append("Kalau layar nggak punya teks (menu game, tombol ikon), pakai objek ini sebagai kandidat titik tap; kalau nggak yakin balas ask_user.\n")
-            }
             append("Balas HANYA satu objek JSON tanpa penjelasan lain: ")
             append("{\"type\":\"tap|swipe|type_text|wait|ask_user|stop\",\"x\":0.5,\"y\":0.5,\"x2\":0.5,\"y2\":0.5,")
             append("\"text\":\"\",\"waitMs\":1500,\"reason\":\"alasan singkat\",\"speech\":\"kalimat pendek santai\"}. ")
@@ -204,13 +156,33 @@ object AiVisionApiClient {
             .getOrElse { PlannedAction(type = "ask_user", reason = "JSON aksi dari AI tidak bisa dibaca.") }
     }
 
-    private fun buildJsonBody(frame: File, ocrText: String, layout: String, scene: String, goal: String, previousActions: String): JSONObject {
-        val imageBytes = encodeJpeg(frame, 1440, 80)
+    private fun buildJsonBody(frame: File, ocrText: String, layout: String, goal: String, previousActions: String): JSONObject {
+        require(frame.exists() && frame.length() > 0L) { "Screenshot terbaru belum tersedia." }
+        val source = BitmapFactory.decodeFile(frame.absolutePath)
+            ?: error("Screenshot tidak bisa dibaca.")
+        val maxSide = 1440
+        val scale = minOf(1.0, maxSide.toDouble() / maxOf(source.width, source.height))
+        val scaled = if (scale < 1.0) {
+            Bitmap.createScaledBitmap(
+                source,
+                (source.width * scale).toInt().coerceAtLeast(1),
+                (source.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else source
+        val imageBytes = try {
+            ByteArrayOutputStream().use { output ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 80, output)
+                output.toByteArray()
+            }
+        } finally {
+            if (scaled !== source) scaled.recycle()
+            source.recycle()
+        }
         return JSONObject()
             .put("goal", goal.take(1500))
             .put("ocrText", ocrText.take(5000))
             .put("ocrLayout", layout.take(3000))
-            .put("scene", scene.take(1200))
             .put("previousActions", previousActions.take(1500))
             .put("screenshotMimeType", "image/jpeg")
             .put("screenshotBase64", Base64.encodeToString(imageBytes, Base64.NO_WRAP))
@@ -222,31 +194,6 @@ object AiVisionApiClient {
                     .put("neverAutomateSensitiveActions", true)
                     .put("neverBypassAuthenticationOrAntiCheat", true)
             )
-    }
-
-    /** Baca screenshot, perkecil sisi terpanjang ke [maxSide], lalu JPEG kualitas [quality]. */
-    private fun encodeJpeg(frame: File, maxSide: Int, quality: Int): ByteArray {
-        require(frame.exists() && frame.length() > 0L) { "Screenshot terbaru belum tersedia." }
-        val source = BitmapFactory.decodeFile(frame.absolutePath)
-            ?: error("Screenshot tidak bisa dibaca.")
-        val scale = minOf(1.0, maxSide.toDouble() / maxOf(source.width, source.height))
-        val scaled = if (scale < 1.0) {
-            Bitmap.createScaledBitmap(
-                source,
-                (source.width * scale).toInt().coerceAtLeast(1),
-                (source.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
-        } else source
-        return try {
-            ByteArrayOutputStream().use { output ->
-                scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)
-                output.toByteArray()
-            }
-        } finally {
-            if (scaled !== source) scaled.recycle()
-            source.recycle()
-        }
     }
 
     /** POST JSON ke [target] dan mengembalikan body respons (2xx). */

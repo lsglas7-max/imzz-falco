@@ -48,7 +48,6 @@ object CatBrain {
 
     private fun remoteReply(message: String, history: List<Pair<String, String>>): Reply? {
         val endpoints = AiVisionApiClient.endpoints(preferSecondary = true)
-            .filterNot { AiVisionApiClient.isVisionTemplate(it) } // chat tidak membawa gambar
         if (endpoints.isEmpty()) return null
 
         val hist = JSONArray()
@@ -57,8 +56,8 @@ object CatBrain {
         }
         val body = JSONObject()
             .put("mode", "chat")
-            .put("goal", message.take(3000))
-            .put("message", message.take(3000))
+            .put("goal", message.take(600))
+            .put("message", message.take(600))
             .put("persona", PERSONA)
             .put("history", hist)
             .put("ocrText", "")
@@ -68,13 +67,7 @@ object CatBrain {
         val prompt = buildTextPrompt(message, history)
         for (endpoint in endpoints) {
             if (AiVisionApiClient.isTextEndpoint(endpoint)) {
-                val text = runCatching { AiVisionApiClient.askText(endpoint, prompt, 80_000) }
-                    .recoverCatching { error ->
-                        // URL "?q=" terlalu panjang untuk server? coba lagi dengan pesan lebih pendek.
-                        if (message.length > 1200) {
-                            AiVisionApiClient.askText(endpoint, buildTextPrompt(message.take(1200), emptyList()), 80_000)
-                        } else throw error
-                    }.getOrNull() ?: continue
+                val text = runCatching { AiVisionApiClient.askText(endpoint, prompt, 80_000) }.getOrNull() ?: continue
                 return textReply(text) ?: continue
             }
             val raw = runCatching { AiVisionApiClient.postJson(endpoint, body, 25_000) }.getOrNull() ?: continue
@@ -87,11 +80,10 @@ object CatBrain {
     /** Endpoint gaya "?q=" hanya menerima satu string, jadi persona + riwayat digabung jadi satu prompt. */
     private fun buildTextPrompt(message: String, history: List<Pair<String, String>>): String = buildString {
         append(PERSONA).append("\n\n")
-        val recent = if (message.length > 1500) emptyList() else history.takeLast(4)
-        recent.forEach { (role, text) ->
+        history.takeLast(4).forEach { (role, text) ->
             append(if (role == "user") "Pengguna: " else "Skylen: ").append(text.take(200)).append('\n')
         }
-        append("Pengguna: ").append(message.take(3000)).append("\nSkylen:")
+        append("Pengguna: ").append(message.take(600)).append("\nSkylen:")
     }
 
     private fun textReply(text: String): Reply? {

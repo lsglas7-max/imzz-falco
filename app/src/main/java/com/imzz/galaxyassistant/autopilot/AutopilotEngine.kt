@@ -19,7 +19,6 @@ object AutopilotEngine {
     private var goal = ""
     private var latestOcr = ""
     private var latestLayout = ""
-    private var latestScene = ""
     private var history = mutableListOf<String>()
     private var startedAt = 0L
     private var actionCount = 0
@@ -57,8 +56,7 @@ object AutopilotEngine {
         scheduleStep(500L)
     }
 
-    fun updateOcr(text: String, layout: String = "", scene: String = "") {
-        latestScene = scene.take(1_200)
+    fun updateOcr(text: String, layout: String = "") {
         latestOcr = text.take(12_000)
         latestLayout = layout.take(6_000)
     }
@@ -112,7 +110,7 @@ object AutopilotEngine {
         worker.execute {
             try {
                 val planner = AutopilotPlanner(context)
-                val planned = planner.next(goal, latestOcr, latestLayout, latestScene, history.takeLast(8).joinToString("\n"))
+                val planned = planner.next(goal, latestOcr, latestLayout, history.takeLast(8).joinToString("\n"))
                 mainHandler.post { applyPlan(context, planned) }
             } catch (error: Exception) {
                 mainHandler.post {

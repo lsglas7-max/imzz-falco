@@ -19,13 +19,6 @@ val galaxyAiApiUrl2 = pickUrl(
     System.getenv("GALAXY_AI_API_URL_2"),
     "https://api.kyio.web.id/api/v2/ai/gpt-6-luna?q="
 )
-val galaxyVisionApiUrl = pickUrl(
-    providers.gradleProperty("galaxyVisionApiUrl").orNull,
-    System.getenv("GALAXY_VISION_API_URL"),
-    "https://api.kyio.web.id/api/v2/ai/ai?q={q}&sessionId={sid}&url={url}"
-)
-val escapedVisionApiUrl = galaxyVisionApiUrl.replace("\\", "\\\\").replace("\"", "\\\"")
-
 val escapedAiApiUrl2 = galaxyAiApiUrl2.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
@@ -36,11 +29,10 @@ android {
         applicationId = "com.imzz.galaxyassistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.6.0"
+        versionCode = 3
+        versionName = "1.2.0"
         buildConfigField("String", "AI_API_URL", "\"$escapedAiApiUrl\"")
         buildConfigField("String", "AI_API_URL_2", "\"$escapedAiApiUrl2\"")
-        buildConfigField("String", "AI_VISION_URL", "\"$escapedVisionApiUrl\"")
     }
 
     compileOptions {
