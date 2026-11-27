@@ -41,8 +41,24 @@ val BgItem = Color(0xFF08101B)
 val FlameLight = Color(0xFF7CC9FF)
 val FlameDark = Color(0xFF0B4A8F)
 ''')
-        (app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt").write_text(
-            "package kr.co.donghyun.flamelauncher.presentation\n\nclass MinecraftActivity {\n    private var gameControllerView: GameControllerView? = null\n    internal val MOUSE_SENSITIVITY = 1.5f\n    private fun sendKeyPress(key: Int, scancode: Int = 0, action: Int, mods: Int = 0) {}\n}\n")
+        (app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt").write_text("""package kr.co.donghyun.flamelauncher.presentation
+
+class MinecraftActivity {
+    private var gameControllerView: GameControllerView? = null
+    internal val MOUSE_SENSITIVITY = 1.5f
+    private fun sendKeyPress(key: Int, scancode: Int = 0, action: Int, mods: Int = 0) {}
+    private fun resolveRendererForVersion(): Renderer {
+        val instanceRendererId = instanceDir?.let { runCatching { InstanceManager.loadMeta(File(it))?.rendererId }.getOrNull() }
+        var base = instanceRendererId?.let { Renderer.fromId(it) } ?: RendererManager.load(this)
+        Log.d("FLAME_LAUNCHER", "renderer: ${base.id}")
+        if (isPre113Version(versionId) && base.id != "gl4es" && base.id != "gl4es_desktop" && base.id != "krypton") {
+            return Renderer.fromId("gl4es")
+        }
+        return base
+    }
+    /**
+     * mods 폴더에 설치된 모드 개수.
+""")
         comp = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/ui/components"
         comp.mkdir(parents=True, exist_ok=True)
         (comp / "MinecraftSurface.kt").write_text(
@@ -144,7 +160,11 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert 'Text("Stay", color = Color.White)' in buttons, "non-accent buttons must keep white text"
         assert 'Text("FPS", color = Color.Black' in settings_screen
         base_ui = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation"
-        assert "ImzyyControls.lookSensitivity(this)" in (base_ui / "MinecraftActivity.kt").read_text()
+        patched_activity = (base_ui / "MinecraftActivity.kt").read_text()
+        assert "IMZYY RENDERER COMPATIBILITY GUARD" in patched_activity
+        assert 'Renderer.fromId("mobileglues")' in patched_activity
+        assert 'mod.name.contains("sodium"' in patched_activity and 'mod.name.contains("embeddium"' in patched_activity
+        assert "ImzyyControls.lookSensitivity(this)" in patched_activity
         assert "import id.imzyy.xl.ImzyyControls" in (base_ui / "ui/components/GameControllerView.kt").read_text()
         assert "id.imzyy.xl.ImzyyControls." not in (base_ui / "ui/components/GameControllerView.kt").read_text()
         assert "internal var gameControllerView" in (base_ui / "MinecraftActivity.kt").read_text()
@@ -168,7 +188,11 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         _inp = (hub_dir / "ImzyyInput.kt").read_text()
         assert "a.sendKeyPress(key = glfw, scancode = 0, action = (if (down) 1 else 0), mods = 0)" in _inp, _inp
         assert "internal fun sendKeyPress" in (base_ui / "MinecraftActivity.kt").read_text()
-        assert "ImzyyPad.attach(a)" in (hub_dir / "ImzyyWindow.kt").read_text()
+        window_hook = (hub_dir / "ImzyyWindow.kt").read_text()
+        assert "ImzyyPad.attach(a)" in window_hook
+        assert "ImzyyBootGuard.onGameCreated(a)" in window_hook
+        assert "setDecorFitsSystemWindows" not in window_hook
+        assert "layoutInDisplayCutoutMode" not in window_hook
         assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "SMOOTH" in (hub_dir / "FpsTuner.kt").read_text()
         assert "liteAutoTune()" in (hub_dir / "ImzyyHubActivity.kt").read_text()
         for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt", "RecoveryTools.kt", "LunaSixty.kt"):

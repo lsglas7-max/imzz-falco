@@ -407,6 +407,51 @@ def _ensure_import(source: str, fqcn: str) -> str:
     return source[: match.end()] + "\n" + line + "\n" + source[match.end():]
 
 
+def patch_renderer_compatibility(app: Path) -> None:
+    """Avoid the known GL4ES + Sodium/Embeddium incompatibility on modern instances.
+    The override is session-only: it does not rewrite the user's global or per-instance setting.
+    """
+    path = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt"
+    src = require_file(path)
+    anchor = """        return base
+    }
+    /**
+     * mods 폴더에 설치된 모드 개수.
+"""
+    replacement = """        // IMZYY RENDERER COMPATIBILITY GUARD
+        // Sodium/Embeddium need a modern OpenGL path; GL4ES is the OpenGL ES 2.0
+        // compatibility layer and is not a suitable renderer for these mods.
+        // Select MobileGlues for this launch only; never overwrite saved preferences.
+        val modsDirForRenderer = instanceDir?.let { File(it, "mods") }
+        val hasSodiumFamily = modsDirForRenderer?.listFiles()?.any { mod ->
+            mod.isFile && mod.name.endsWith(".jar", ignoreCase = true) &&
+                (mod.name.contains("sodium", ignoreCase = true) || mod.name.contains("embeddium", ignoreCase = true))
+        } == true
+        if (hasSodiumFamily && base.id in setOf("gl4es", "gl4es_desktop")) {
+            val previousRenderer = base.id
+            base = Renderer.fromId("mobileglues")
+            Log.w("FLAME_LAUNCHER", "IMZYY: Sodium/Embeddium + $previousRenderer; using MobileGlues for this session")
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    "Sodium/Embeddium terdeteksi. Renderer sesi ini dialihkan dari GL4ES ke MobileGlues.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        return base
+    }
+    /**
+     * mods 폴더에 설치된 모드 개수.
+"""
+    if replacement not in src:
+        if src.count(anchor) != 1:
+            raise RuntimeError("Anchor renderer compatibility tidak ditemukan/tidak unik (upstream berubah?)")
+        src = src.replace(anchor, replacement, 1)
+    path.write_text(src, encoding="utf-8")
+    print("renderer compatibility: Sodium/Embeddium avoids GL4ES without changing saved preferences")
+
+
 def patch_controls(app: Path) -> None:
     """Hook IMZYY controls (look sensitivity, touch slop/long-press, virtual mouse + cursor overlay)
     into the upstream game input code and recolor the on-screen buttons to monochrome."""
@@ -759,6 +804,7 @@ def main() -> int:
     patch_contrast(app)
     patch_fps_text(app)
     patch_controls(app)
+    patch_renderer_compatibility(app)
     patch_hide_release_notes(app)
     runtimes = patch_lite(app, args.repo, args.runtimes_out) if args.variant == "lite" else "{}"
     install_hub(app, args.repo, args.version, args.variant, runtimes)

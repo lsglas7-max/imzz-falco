@@ -90,9 +90,13 @@ Do not stack multiple renderer drivers or copy random JVM flags from PC guides. 
 - Asset repair uses up to eight concurrent downloads; Modrinth `.mrpack` uses up to six.
 - Resume improves recovery from interrupted transfers; it cannot make a slow server or network inherently faster, and servers that ignore Range restart that one file from the beginning.
 
-## Magenta / broken rendering
+## Magenta / broken rendering and display viewport
 
-The upstream engine documents Zink as the modern Vulkan-to-OpenGL path, Krypton as GLES 3.x, GL4ES as a compatibility path mainly for old versions, and MobileGlues as another OpenGL/GLES path. Sodium/Embeddium require a modern OpenGL path and are not compatible with GL4ES. For Minecraft 1.17+, test Zink first; on Mali hardware Zink may use the Panfrost fallback. If artifacts remain, test MobileGlues or Krypton one at a time. The BOOST > Perbaikan render / tekstur action clears IMZYY-generated visual overrides, but it cannot repair a broken GPU driver or automatically choose a renderer.
+The game `SurfaceView` and SDL window remain owned by the upstream Minecraft activity. IMZYY only attaches its touch-pad overlay and boot markers; it does not change `decorFitsSystemWindows` or the display-cutout policy from an activity lifecycle callback. This avoids applying a second window geometry policy after the native renderer has measured its viewport.
+
+When Sodium or Embeddium is installed and the saved renderer is GL4ES, the game launch uses MobileGlues for that session only. The global and per-instance renderer preferences are not rewritten. This is a compatibility guard, not a promise that every modpack or GPU driver will render correctly.
+
+The upstream engine documents Zink as the modern Vulkan-to-OpenGL path, Krypton as GLES 3.x, GL4ES as a compatibility path mainly for older versions, and MobileGlues as another OpenGL/GLES path. Sodium/Embeddium need a modern OpenGL path; GL4ES is not suitable. For modern Sodium/Embeddium instances that explicitly select GL4ES, IMZYY now chooses MobileGlues for that launch only. If artifacts remain, test a clean vanilla instance and compare MobileGlues, Krypton and Zink one at a time. The BOOST > Perbaikan render / tekstur action clears IMZYY-generated visual overrides, but it cannot repair a broken GPU driver.
 
 ## Build with GitHub Actions
 
