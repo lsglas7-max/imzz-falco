@@ -231,6 +231,9 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
     assert "RecoveryTools.criticalWarnings(scan)" in hub_src, "preflight blocks common duplicate renderer mods"
     assert "RecoveryTools.scanMods(target)" in (ROOT / "android-overlay/kotlin/Mrpack.kt").read_text(), "mrpack install audits staged mods"
     luna_src = (ROOT / "android-overlay/kotlin/LunaSixty.kt").read_text()
+    assert "data class LunaMessage" in luna_src and "internal data class LunaMessage" not in luna_src, "public HubState must not expose an internal LunaMessage type"
+    assert "fun find(value: Any?): String? {" in luna_src, "recursive JSON response parser must use a block body"
+    assert "fun find(value: Any?): String? = when" not in luna_src, "expression-body parser cannot contain early returns"
     assert 'kyio' in luna_src and 'gpt-6-luna?q=' in luna_src, "Luna Sixty endpoint is integrated"
     assert "HttpURLConnection" in luna_src and "connectTimeout = 18_000" in luna_src and "readTimeout = 55_000" in luna_src
     assert "ANALISIS LOG INSTANCE" in luna_src and "ANALISIS DENGAN LUNA SIXTY" in hub_src

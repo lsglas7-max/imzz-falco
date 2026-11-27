@@ -35,7 +35,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-internal data class LunaMessage(val role: String, val text: String)
+data class LunaMessage(val role: String, val text: String)
 
 /** Luna Sixty client. The endpoint is kept in one native source location and never rendered in UI/logs. */
 private object LunaSixtyApi {
@@ -88,31 +88,39 @@ private object LunaSixtyApi {
         if (json.has("status") && !json.optBoolean("status", true)) {
             return json.optString("message").ifBlank { json.optString("error") }.ifBlank { "Permintaan ditolak layanan AI." }
         }
-        fun find(value: Any?): String? = when (value) {
-            is JSONObject -> {
-                val preferred = listOf("response", "answer", "output_text", "text", "content", "message", "msg", "error", "result", "data")
-                for (key in preferred) {
-                    if (value.has(key)) {
-                        val found = find(value.opt(key))
+        // Block body is intentional: recursive traversal returns early when a useful
+        // response is found. Kotlin does not allow these returns in an expression body.
+        fun find(value: Any?): String? {
+            return when (value) {
+                is JSONObject -> {
+                    val preferred = listOf(
+                        "response", "answer", "output_text", "text", "content",
+                        "message", "msg", "error", "result", "data"
+                    )
+                    var match: String? = null
+                    for (key in preferred) {
+                        if (value.has(key)) {
+                            val found = find(value.opt(key))
+                            if (!found.isNullOrBlank()) {
+                                match = found
+                                break
+                            }
+                        }
+                    }
+                    match
+                        ?: value.optJSONArray("choices")?.let { find(it) }
+                        ?: value.optJSONArray("output")?.let { find(it) }
+                }
+                is JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        val found = find(value.opt(index))
                         if (!found.isNullOrBlank()) return found
                     }
+                    null
                 }
-                val choices = value.optJSONArray("choices")
-                if (choices != null) find(choices)
-                else {
-                    val output = value.optJSONArray("output")
-                    if (output != null) find(output) else null
-                }
+                is String -> value.takeIf { it.isNotBlank() }
+                else -> null
             }
-            is JSONArray -> {
-                for (index in 0 until value.length()) {
-                    val found = find(value.opt(index))
-                    if (!found.isNullOrBlank()) return found
-                }
-                null
-            }
-            is String -> value.takeIf { it.isNotBlank() }
-            else -> null
         }
         return find(json)?.trim().orEmpty()
     }
