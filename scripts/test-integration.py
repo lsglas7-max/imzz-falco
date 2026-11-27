@@ -206,6 +206,9 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
     assert "private const val THREADS = 8" in net_src, "asset repair parallelism"
     runtime_src = (ROOT / "android-overlay/kotlin/ImzyyRuntimes.kt").read_text()
     assert "Net.downloadSha256(url, tmp, sha)" in runtime_src, "runtime archive uses resumable download"
+    assert "import java.io.FileOutputStream" in runtime_src, "runtime extraction imports FileOutputStream"
+    assert "val outputFile = File(root, e.name).canonicalFile" in runtime_src, "runtime extraction avoids Kotlin out keyword ambiguity"
+    assert "FileOutputStream(outputFile).use { outputStream ->" in runtime_src, "runtime extraction writes archive entries"
     mrpack_src = (ROOT / "android-overlay/kotlin/Mrpack.kt").read_text()
     assert 'isPendingStage && target.exists()' in mrpack_src and '.imzyy-ready' in mrpack_src, "clear stale pending modpack and write ready marker"
     assert 'mods-${System.currentTimeMillis()}' in mrpack_src and 'moveDirectory(stagedMods, liveMods)' in mrpack_src, "backup and atomic mods directory replacement"

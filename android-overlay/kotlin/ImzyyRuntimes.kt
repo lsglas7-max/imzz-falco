@@ -2,6 +2,7 @@ package id.imzyy.xl
 
 import android.content.Context
 import java.io.File
+import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
 import org.json.JSONObject
 
@@ -68,13 +69,24 @@ object ImzyyRuntimes {
             ZipInputStream(tmp.inputStream().buffered()).use { zip ->
                 var e = zip.nextEntry
                 while (e != null) {
-                    val out = File(root, e.name).canonicalFile
-                    require(out.path == root.path || out.path.startsWith(root.path + File.separator)) { "Path zip tidak aman: ${e.name}" }
+                    val outputFile = File(root, e.name).canonicalFile
+                    require(
+                        outputFile.path == root.path ||
+                            outputFile.path.startsWith(root.path + File.separator)
+                    ) { "Path zip tidak aman: ${e.name}" }
+
                     if (e.isDirectory) {
-                        out.mkdirs()
+                        if (!outputFile.isDirectory && !outputFile.mkdirs()) {
+                            throw java.io.IOException("Tidak bisa membuat direktori runtime: ${outputFile.path}")
+                        }
                     } else {
-                        out.parentFile?.mkdirs()
-                        FileOutputStream(out).use { zip.copyTo(it) }
+                        val parent = outputFile.parentFile
+                        if (parent != null && !parent.isDirectory && !parent.mkdirs()) {
+                            throw java.io.IOException("Tidak bisa membuat direktori runtime: ${parent.path}")
+                        }
+                        FileOutputStream(outputFile).use { outputStream ->
+                            zip.copyTo(outputStream)
+                        }
                     }
                     zip.closeEntry()
                     e = zip.nextEntry
