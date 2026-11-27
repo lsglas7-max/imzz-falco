@@ -1,0 +1,45 @@
+def patch_renderer_compatibility(app: Path) -> None:
+    """Best-effort renderer guard tolerant of upstream method/comment changes."""
+    path = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt"
+    src = require_file(path)
+    marker = "IMZYY RENDERER COMPATIBILITY GUARD"
+    if marker in src:
+        print("renderer compatibility: already applied")
+        return
+
+    guard = '''        // IMZYY RENDERER COMPATIBILITY GUARD
+        // Sodium/Embeddium require a modern OpenGL path; avoid GL4ES for this session.
+        val modsDirForRenderer = instanceDir?.let { File(it, "mods") }
+        val hasSodiumFamily = modsDirForRenderer?.listFiles()?.any { mod ->
+            mod.isFile && mod.name.endsWith(".jar", ignoreCase = true) &&
+                (mod.name.contains("sodium", ignoreCase = true) || mod.name.contains("embeddium", ignoreCase = true))
+        } == true
+        if (hasSodiumFamily && base.id in setOf("gl4es", "gl4es_desktop")) {
+            val previousRenderer = base.id
+            base = Renderer.fromId("mobileglues")
+            android.util.Log.w("FLAME_LAUNCHER", "IMZYY: Sodium/Embeddium + $previousRenderer; using MobileGlues for this session")
+        }
+'''
+
+    candidates = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)return\s+base\s*$", src))
+    selected = None
+    if len(candidates) == 1:
+        selected = candidates[0]
+    elif candidates:
+        for candidate in candidates:
+            prefix = src[:candidate.start()]
+            funcs = list(re.finditer(r"(?m)^\s*(?:(?:private|internal|protected|public|override)\s+)*fun\s+([A-Za-z0-9_]*[Rr]enderer[A-Za-z0-9_]*)\s*\([^)]*\)\s*:\s*Renderer\s*\{", prefix))
+            if funcs:
+                function = funcs[-1]
+                if src[function.end():candidate.start()].count("return base") == 1:
+                    selected = candidate
+                    break
+
+    if selected is None:
+        print("renderer compatibility: skipped (upstream renderer method changed); choose MobileGlues manually for Sodium")
+        return
+
+    indent = selected.group("indent")
+    src = src[:selected.start()] + guard + indent + "return base" + src[selected.end():]
+    path.write_text(src, encoding="utf-8")
+    print("renderer compatibility: patched safely before renderer return")

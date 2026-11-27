@@ -1,0 +1,24 @@
+contrast: 1 white-on-accent usages flipped to black
+controls: look sensitivity, slop, long-press, touchpad + cursor hooks applied
+renderer compatibility: patched safely before renderer return
+release notes: side-menu entry hidden, upstream update popup disabled
+lite: runtimes diunduh-saat-butuh = ['jre17', 'jre25', 'jre8']; bawaan = jre21
+runtimes: on-demand JRE hooks applied
+controls-pad: key sender = sendKeyPress(key = glfw, scancode = 0, action = (if (down) 1 else 0), mods = 0)
+IMZYY XL monochrome UI, local IMZYY login, local PNG skin studio, Hub (Boost/Mods/.mrpack import), typography and device-capped performance profiles applied (ARM64 upstream engine retained).
+contrast: 0 white-on-accent usages flipped to black
+controls: look sensitivity, slop, long-press, touchpad + cursor hooks applied
+renderer compatibility: already applied
+release notes: side-menu entry hidden, upstream update popup disabled
+lite: runtimes diunduh-saat-butuh = ['jre17', 'jre25', 'jre8']; bawaan = jre21
+runtimes: on-demand JRE hooks applied
+controls-pad: key sender = sendKeyPress(key = glfw, scancode = 0, action = (if (down) 1 else 0), mods = 0)
+IMZYY XL monochrome UI, local IMZYY login, local PNG skin studio, Hub (Boost/Mods/.mrpack import), typography and device-capped performance profiles applied (ARM64 upstream engine retained).
+contrast: 1 white-on-accent usages flipped to black
+controls: look sensitivity, slop, long-press, touchpad + cursor hooks applied
+renderer compatibility: patched safely before renderer return
+release notes: side-menu entry hidden, upstream update popup disabled
+runtimes: on-demand JRE hooks applied
+controls-pad: key sender = sendKeyPress(key = glfw, scancode = 0, action = (if (down) 1 else 0), mods = 0)
+IMZYY XL monochrome UI, local IMZYY login, local PNG skin studio, Hub (Boost/Mods/.mrpack import), typography and device-capped performance profiles applied (ARM64 upstream engine retained).
+IMZYY integration tests passed: single-app activity check, branding, local account/skin overlay, premium typography, performance profiles, adaptive icon, idempotency, ARM64 and no Amethyst build path.

@@ -408,20 +408,16 @@ def _ensure_import(source: str, fqcn: str) -> str:
 
 
 def patch_renderer_compatibility(app: Path) -> None:
-    """Avoid the known GL4ES + Sodium/Embeddium incompatibility on modern instances.
-    The override is session-only: it does not rewrite the user's global or per-instance setting.
-    """
+    """Best-effort renderer guard tolerant of upstream method/comment changes."""
     path = app / "src/main/java/kr/co/donghyun/flamelauncher/presentation/MinecraftActivity.kt"
     src = require_file(path)
-    anchor = """        return base
-    }
-    /**
-     * mods 폴더에 설치된 모드 개수.
-"""
-    replacement = """        // IMZYY RENDERER COMPATIBILITY GUARD
-        // Sodium/Embeddium need a modern OpenGL path; GL4ES is the OpenGL ES 2.0
-        // compatibility layer and is not a suitable renderer for these mods.
-        // Select MobileGlues for this launch only; never overwrite saved preferences.
+    marker = "IMZYY RENDERER COMPATIBILITY GUARD"
+    if marker in src:
+        print("renderer compatibility: already applied")
+        return
+
+    guard = '''        // IMZYY RENDERER COMPATIBILITY GUARD
+        // Sodium/Embeddium require a modern OpenGL path; avoid GL4ES for this session.
         val modsDirForRenderer = instanceDir?.let { File(it, "mods") }
         val hasSodiumFamily = modsDirForRenderer?.listFiles()?.any { mod ->
             mod.isFile && mod.name.endsWith(".jar", ignoreCase = true) &&
@@ -430,27 +426,32 @@ def patch_renderer_compatibility(app: Path) -> None:
         if (hasSodiumFamily && base.id in setOf("gl4es", "gl4es_desktop")) {
             val previousRenderer = base.id
             base = Renderer.fromId("mobileglues")
-            Log.w("FLAME_LAUNCHER", "IMZYY: Sodium/Embeddium + $previousRenderer; using MobileGlues for this session")
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "Sodium/Embeddium terdeteksi. Renderer sesi ini dialihkan dari GL4ES ke MobileGlues.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            android.util.Log.w("FLAME_LAUNCHER", "IMZYY: Sodium/Embeddium + $previousRenderer; using MobileGlues for this session")
         }
-        return base
-    }
-    /**
-     * mods 폴더에 설치된 모드 개수.
-"""
-    if replacement not in src:
-        if src.count(anchor) != 1:
-            raise RuntimeError("Anchor renderer compatibility tidak ditemukan/tidak unik (upstream berubah?)")
-        src = src.replace(anchor, replacement, 1)
-    path.write_text(src, encoding="utf-8")
-    print("renderer compatibility: Sodium/Embeddium avoids GL4ES without changing saved preferences")
+'''
 
+    candidates = list(re.finditer(r"(?m)^(?P<indent>[ \t]*)return\s+base\s*$", src))
+    selected = None
+    if len(candidates) == 1:
+        selected = candidates[0]
+    elif candidates:
+        for candidate in candidates:
+            prefix = src[:candidate.start()]
+            funcs = list(re.finditer(r"(?m)^\s*(?:(?:private|internal|protected|public|override)\s+)*fun\s+([A-Za-z0-9_]*[Rr]enderer[A-Za-z0-9_]*)\s*\([^)]*\)\s*:\s*Renderer\s*\{", prefix))
+            if funcs:
+                function = funcs[-1]
+                if src[function.end():candidate.start()].count("return base") == 1:
+                    selected = candidate
+                    break
+
+    if selected is None:
+        print("renderer compatibility: skipped (upstream renderer method changed); choose MobileGlues manually for Sodium")
+        return
+
+    indent = selected.group("indent")
+    src = src[:selected.start()] + guard + indent + "return base" + src[selected.end():]
+    path.write_text(src, encoding="utf-8")
+    print("renderer compatibility: patched safely before renderer return")
 
 def patch_controls(app: Path) -> None:
     """Hook IMZYY controls (look sensitivity, touch slop/long-press, virtual mouse + cursor overlay)
