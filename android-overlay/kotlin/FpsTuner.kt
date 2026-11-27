@@ -75,11 +75,11 @@ object FpsTuner {
 
     fun apply(instance: File, profile: Profile): Int = applyValues(instance, profile.values)
 
-    fun applyValues(instance: File, values: List<Pair<String, String>>): Int {
+    fun applyValues(instance: File, values: List<Pair<String, String>>, backupFirst: Boolean = true): Int {
         instance.mkdirs()
         val f = File(instance, "options.txt")
         val backup = File(instance, "options.txt.imzyy.bak")
-        if (f.exists() && !backup.exists()) f.copyTo(backup)
+        if (backupFirst && f.exists() && !backup.exists()) f.copyTo(backup)
         val lines = if (f.exists()) f.readLines().toMutableList() else mutableListOf()
         var changed = 0
         for ((k, v) in values) {

@@ -171,8 +171,16 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert "ImzyyPad.attach(a)" in (hub_dir / "ImzyyWindow.kt").read_text()
         assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "SMOOTH" in (hub_dir / "FpsTuner.kt").read_text()
         assert "liteAutoTune()" in (hub_dir / "ImzyyHubActivity.kt").read_text()
-        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt"):
+        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt"):
             assert (hub_dir / name).is_file(), name
+        hub_source = (hub_dir / "ImzyyHubActivity.kt").read_text()
+        account_source = (hub_dir / "ImzyyAccountStore.kt").read_text()
+        skin_source = (hub_dir / "ImzyySkinManager.kt").read_text()
+        assert "ImzyyAuthGate" in hub_source and "BUAT AKUN IMZYY" in hub_source and "MASUK KE IMZYY" in hub_source
+        assert "PBKDF2WithHmacSHA256" in account_source and "active_user" in account_source
+        assert "importPng" in skin_source and "IMZYY-Local-Skin.zip" in skin_source
+        assert "OpenDocument" in hub_source and "64 × 64" in hub_source
+        assert '5 -> SkinTab(s)' in hub_source and 'else -> AccountTab(s)' in hub_source
         cfg = (hub_dir / "ImzyyConfig.kt").read_text()
         assert 'GITHUB_REPO = "owner/imzyy"' in cfg and "@" not in cfg, cfg
         assert (app / "src/main/res/values/imzyy_theme.xml").is_file()
@@ -194,7 +202,7 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
     assert (ROOT / "scripts/build-imzyy.sh").is_file()
     assert not (ROOT / "scripts/build-amethyst.sh").exists()
     assert not (ROOT / "scripts/prepare-amethyst.py").exists()
-    print("IMZYY integration tests passed: single-app activity check, branding, premium typography, performance profiles, adaptive icon, idempotency, ARM64 and no Amethyst build path.")
+    print("IMZYY integration tests passed: single-app activity check, branding, local account/skin overlay, premium typography, performance profiles, adaptive icon, idempotency, ARM64 and no Amethyst build path.")
     return 0
 
 if __name__ == "__main__":

@@ -138,4 +138,32 @@ object Modrinth {
             size = chosen.optLong("size"),
         )
     }
+
+    /**
+     * Fabric only: makes sure Mod Menu (the "Mods" button on the title screen) is present, plus Fabric API if no
+     * Fabric API jar exists yet. Looks in every folder of [existing]; new files go to [dest]. Returns true if added.
+     */
+    fun ensureModMenu(existing: List<java.io.File>, dest: java.io.File, gameVersion: String, loader: String, say: (String) -> Unit): Boolean {
+        if (loader != "fabric") return false
+        fun has(part: String) = existing.any { d ->
+            d.listFiles()?.any { it.isFile && it.name.endsWith(".jar") && it.name.contains(part, true) } == true
+        }
+        if (has("modmenu") || has("mod-menu")) return false
+        dest.mkdirs()
+        val wanted = ArrayList<String>()
+        if (!has("fabric-api")) wanted.add("fabric-api")
+        wanted.add("modmenu")
+        var added = false
+        for (slug in wanted) {
+            val f = resolve(slug, gameVersion, loader)
+            if (f == null) {
+                say("– $slug: tidak ada build untuk $gameVersion")
+                continue
+            }
+            say("↓ ${f.filename}")
+            Net.download(f.url, java.io.File(dest, f.filename), f.sha512, f.sha1)
+            added = true
+        }
+        return added
+    }
 }

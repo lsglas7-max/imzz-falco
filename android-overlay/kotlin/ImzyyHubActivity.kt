@@ -7,8 +7,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +43,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -147,6 +153,8 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     val instances = mutableStateListOf<InstanceMeta>()
     val hits = mutableStateListOf<Hit>()
     val picked = mutableStateMapOf<String, Boolean>().also { m -> PerfPack.catalog.forEach { m[it.slug] = it.defaultOn } }
+    var skinTick by mutableStateOf(0)
+    var skinSlim by mutableStateOf(ImzyySkinManager.isSlim(ctx))
 
     fun say(s: String) {
         logs.add(s)
@@ -347,6 +355,21 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         say("✓ $n file dipasang. Buka Mod Menu di dalam game untuk mengatur Voxy. Voxy butuh renderer OpenGL 4.x (MobileGlues/Zink), tidak jalan di GL4ES.")
     }
 
+    fun setGameLang(code: String, label: String) = runJob {
+        val d = needTarget()
+        FpsTuner.applyValues(d, listOf("lang" to code), backupFirst = false)
+        say("✓ Bahasa game diatur ke $label. Berlaku saat game dijalankan lagi.")
+    }
+
+    fun installModMenu() = runJob {
+        val l = needLoader()
+        if (l != "fabric") error("Mod Menu hanya untuk instance Fabric")
+        val dir = needTarget()
+        say("Memeriksa Mod Menu…")
+        val added = Modrinth.ensureModMenu(listOf(File(dir, "mods")), File(dir, "mods"), gameVersion, l, this::say)
+        say(if (added) "✓ Mod Menu terpasang. Mulai ulang game: tombol Mods muncul di layar utama." else "Mod Menu sudah ada di instance ini.")
+    }
+
     fun compressTextures() = runJob {
         val dir = needTarget()
         val minSide = TextureCompress.MIN_SIDE[texLevel]
@@ -375,6 +398,31 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         say("✓ ${TextureCompress.clean(File(needTarget(), "resourcepacks"))} file hasil kompres dihapus")
     }
 
+    fun importSkin(uri: Uri) = runJob {
+        ImzyySkinManager.importPng(ctx, uri)
+        skinTick++
+        say("✓ Skin PNG 64×64 berhasil diimpor ke akun IMZYY.")
+    }
+
+    fun setSkinModel(slim: Boolean) {
+        skinSlim = slim
+        ImzyySkinManager.setSlim(ctx, slim)
+    }
+
+    fun applySkin() = runJob {
+        val target = needTarget()
+        if (!ImzyySkinManager.applyToInstance(ctx, target, gameVersion)) error("Impor skin PNG terlebih dahulu.")
+        say("✓ Skin lokal dipasang ke resource pack instance ${meta?.name}. Akan aktif saat game dimulai ulang.")
+    }
+
+    fun removeSkin() = runJob {
+        val target = meta?.let { InstanceManager.instanceDir(ctx, it.id) }
+        if (target != null) ImzyySkinManager.removePackFromInstance(target)
+        ImzyySkinManager.removeLocalSkin(ctx)
+        skinTick++
+        say("Skin lokal dihapus dari akun dan instance yang dipilih.")
+    }
+
     private fun openLauncher() {
         ctx.startActivity(Intent().setClassName(ctx.packageName, ImzyyConfig.MAIN_ACTIVITY))
     }
@@ -383,6 +431,12 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     private fun assetJob(): AssetRepair.Report? {
         val m = meta ?: return null
         runCatching { Mrpack.applyPending(InstanceManager.instanceDir(ctx, m.id)) }.getOrNull()?.takeIf { it > 0 }?.let { say("✓ Modpack tertunda diterapkan ($it file)") }
+        runCatching { TextureCompress.quietSodium(ctx, InstanceManager.instanceDir(ctx, m.id), m.mcVersion) }
+        runCatching {
+            if (ImzyySkinManager.applyToInstance(ctx, InstanceManager.instanceDir(ctx, m.id), m.mcVersion)) {
+                say("✓ Skin lokal IMZYY disinkronkan ke resource pack instance.")
+            }
+        }.onFailure { say("Skin lokal tidak dapat dipasang: ${it.message ?: "error"}") }
         say("Memeriksa asset Minecraft ${m.mcVersion}…")
         val r = AssetRepair.repair(ctx, InstanceManager.instanceDir(ctx, m.id), m.assetIndexId) { progress = it }
         when {
@@ -424,7 +478,20 @@ fun HubApp() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val s = remember { HubState(ctx, scope) }
-    LaunchedEffect(Unit) { s.refreshInstances(); withContext(Dispatchers.IO) { ImzyyControls.refresh(ctx, force = true); ImzyyPad.load(ctx) } }
+    var signedIn by remember { mutableStateOf(ImzyyAccountStore.current(ctx) != null) }
+    LaunchedEffect(signedIn) {
+        if (signedIn) {
+            s.skinSlim = ImzyySkinManager.isSlim(ctx)
+            s.skinTick++
+            s.refreshInstances()
+            withContext(Dispatchers.IO) { ImzyyControls.refresh(ctx, force = true); ImzyyPad.load(ctx) }
+        }
+    }
+
+    if (!signedIn) {
+        ImzyyAuthGate(onAuthenticated = { signedIn = true })
+        return
+    }
 
     Box(Modifier.fillMaxSize().background(Ink.Black)) {
         AnimatedBackdrop()
@@ -436,7 +503,13 @@ fun HubApp() {
                         1 -> BoostTab(s)
                         2 -> ModsTab(s)
                         3 -> ImportTab(s)
-                        else -> ControlsTab(s)
+                        4 -> ControlsTab(s)
+                        5 -> SkinTab(s)
+                        else -> AccountTab(s) {
+                            ImzyyAccountStore.logout(ctx)
+                            signedIn = false
+                            s.tab = 0
+                        }
                     }
                 }
             }
@@ -447,10 +520,10 @@ fun HubApp() {
 
 @Composable
 private fun NavBar(s: HubState) {
-    val names = listOf("HOME", "BOOST", "MODS", "IMPORT", "KONTROL")
+    val names = listOf("HOME", "BOOST", "MODS", "IMPORT", "KONTROL", "SKIN", "AKUN")
     Row(
-        Modifier.fillMaxWidth().background(Ink.Black).padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        Modifier.fillMaxWidth().background(Ink.Black).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         names.forEachIndexed { i, n -> Chip(n, s.tab == i, compact = true) { s.tab = i } }
@@ -481,6 +554,15 @@ private fun HomeTab(s: HubState) {
             }
         }
         item { Reveal(2) { GlowButton("▶  PLAY", { s.play() }) } }
+        item {
+            Reveal(2) {
+                Panel {
+                    Text("Akun IMZYY", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Login di dashboard memakai akun IMZYY lokal. Catatan: engine Minecraft bawaan project ini masih dapat meminta akun Microsoft saat membuka alur game upstream.", color = Ink.Sub, fontSize = 11.sp)
+                    InkButton("KELOLA AKUN", { s.tab = 6 }, filled = false)
+                }
+            }
+        }
         item {
             Reveal(2) {
                 Panel {
@@ -649,6 +731,18 @@ private fun BoostTab(s: HubState) {
         item {
             Reveal(5) {
                 Panel {
+                    Text("Bahasa game", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Atur bahasa Minecraft untuk instance ini tanpa membuka menu game (berguna kalau modpack mengganti bahasa).", color = Ink.Sub, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("INDONESIA", false, compact = true) { s.setGameLang("in_id", "Indonesia") }
+                        Chip("ENGLISH", false, compact = true) { s.setGameLang("en_us", "English") }
+                    }
+                }
+            }
+        }
+        item {
+            Reveal(5) {
+                Panel {
                     Text("Voxy (LOD jarak jauh)", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text("Pasang Fabric API + Sodium + Voxy + Mod Menu sekali tekan. Atur Voxy langsung di dalam game lewat Mod Menu. Voxy butuh renderer OpenGL 4.x (MobileGlues/Zink); di OpenGL ES murni atau GL4ES tidak bisa jalan.", color = Ink.Sub, fontSize = 12.sp)
                     InkButton("PASANG PRESET VOXY", { s.installVoxy() }, enabled = !s.busy)
@@ -677,6 +771,15 @@ private fun ModsTab(s: HubState) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Reveal(0) { Title("MODS", "Cari & pasang dari Modrinth") } }
         item { Reveal(1) { TargetCard(s) } }
+        item {
+            Reveal(1) {
+                Panel {
+                    Text("Menu Mods di dalam game", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Tombol Mods di layar utama Minecraft datang dari Mod Menu (Fabric). Banyak modpack tidak membawanya; tekan ini untuk memasangnya.", color = Ink.Sub, fontSize = 12.sp)
+                    InkButton("PASANG MOD MENU", { s.installModMenu() }, filled = false, enabled = !s.busy)
+                }
+            }
+        }
         item {
             Reveal(2) {
                 Panel {
@@ -857,3 +960,194 @@ private fun ControlsTab(s: HubState) {
         }
     }
 }
+
+@Composable
+private fun ImzyyAuthGate(onAuthenticated: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var registerMode by remember { mutableStateOf(!ImzyyAccountStore.hasAccounts(ctx)) }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    Box(Modifier.fillMaxSize().background(Ink.Black)) {
+        AnimatedBackdrop()
+        Column(
+            Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 20.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            ShimmerTitle("IMZYY XL")
+            Text("ACCOUNT SYSTEM", color = Ink.Sub, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(24.dp))
+            Panel {
+                Text(if (registerMode) "BUAT AKUN IMZYY" else "SELAMAT DATANG KEMBALI", color = Ink.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (registerMode) "Buat identitas launcher kamu. Username dan password disimpan secara lokal di perangkat ini."
+                    else "Masuk menggunakan akun IMZYY yang sudah dibuat di perangkat ini.",
+                    color = Ink.Sub, fontSize = 12.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("LOGIN", !registerMode) { registerMode = false; error = "" }
+                    Chip("REGISTER", registerMode) { registerMode = true; error = "" }
+                }
+                InkField(username, { username = it; error = "" }, "Username")
+                InkPasswordField(password, { password = it; error = "" }, "Password")
+                if (registerMode) InkPasswordField(confirm, { confirm = it; error = "" }, "Konfirmasi password")
+                if (error.isNotBlank()) Text(error, color = Color(0xFFFF8A8A), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                InkButton(
+                    if (busy) "MEMPROSES…" else if (registerMode) "BUAT AKUN SEKARANG" else "MASUK KE IMZYY",
+                    onClick = {
+                        if (busy) return@InkButton
+                        if (registerMode && password != confirm) {
+                            error = "Konfirmasi password belum sama."
+                        } else {
+                            busy = true
+                            error = ""
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        if (registerMode) ImzyyAccountStore.register(ctx, username, password)
+                                        else ImzyyAccountStore.login(ctx, username, password)
+                                    }
+                                    password = ""
+                                    confirm = ""
+                                    onAuthenticated()
+                                } catch (e: Exception) {
+                                    error = e.message ?: "Tidak dapat memproses akun."
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "AKUN LOKAL • Tidak perlu email • Tidak dikirim ke server. Akun ini untuk masuk ke launcher, bukan akun Minecraft online.",
+                color = Ink.Sub, fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkinTab(s: HubState) {
+    val ctx = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { s.importSkin(it) }
+    }
+    val tick = s.skinTick
+    val preview = remember(tick) { ImzyySkinManager.preview(ctx) }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { Reveal(0) { Title("SKIN STUDIO", "Impor PNG dan pasang ke instance Minecraft") } }
+        item { Reveal(1) { TargetCard(s) } }
+        item {
+            Reveal(2) {
+                Panel {
+                    Text("SKIN PREVIEW", color = Ink.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (preview != null) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Image(
+                                bitmap = preview.asImageBitmap(),
+                                contentDescription = "Preview tekstur skin Minecraft",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.width(180.dp).height(180.dp),
+                            )
+                        }
+                        Text("Skin tersimpan di profil IMZYY ini.", color = Ink.Sub, fontSize = 12.sp)
+                    } else {
+                        Box(
+                            Modifier.fillMaxWidth().height(120.dp).background(Ink.Raised, RoundedCornerShape(14.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("BELUM ADA SKIN", color = Ink.Sub, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        Text("Pilih gambar PNG skin Minecraft berukuran tepat 64 × 64 piksel.", color = Ink.Sub, fontSize = 12.sp)
+                    }
+                    InkButton("IMPORT FILE PNG", { picker.launch(arrayOf("image/png")) }, enabled = !s.busy)
+                    Text("Model lengan skin", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("CLASSIC · STEVE", !s.skinSlim) { s.setSkinModel(false) }
+                        Chip("SLIM · ALEX", s.skinSlim) { s.setSkinModel(true) }
+                    }
+                    Text("Pilih model yang sesuai dengan desain skin PNG kamu.", color = Ink.Sub, fontSize = 11.sp)
+                }
+            }
+        }
+        item {
+            Reveal(3) {
+                Panel {
+                    Text("TERAPKAN KE MINECRAFT", color = Ink.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Pilih instance pada kartu INSTANCE di atas, lalu pasang skin. Launcher membuat resource pack IMZYY dan mengaktifkannya otomatis ketika PLAY dijalankan.",
+                        color = Ink.Sub, fontSize = 12.sp,
+                    )
+                    InkButton("PAKAI SKIN DI INSTANCE", { s.applySkin() }, enabled = !s.busy && preview != null)
+                    InkButton("HAPUS SKIN LOKAL", { s.removeSkin() }, filled = false, enabled = !s.busy && preview != null)
+                }
+            }
+        }
+        item {
+            Reveal(4) {
+                Panel {
+                    Text("CATATAN KOMPATIBILITAS", color = Ink.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Skin ini dipasang sebagai pengganti tekstur skin bawaan lokal melalui resource pack. Ini tidak mengunggah skin ke akun Minecraft, tidak mengubah skin pemain online yang sudah memiliki tekstur sendiri, dan hasilnya bergantung pada versi serta model player.",
+                        color = Ink.Sub, fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+        item { LogCard(s) }
+    }
+}
+
+@Composable
+private fun AccountTab(s: HubState, onLogout: () -> Unit) {
+    val account = ImzyyAccountStore.current(s.ctx)
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { Reveal(0) { Title("AKUN IMZYY", "Identitas lokal launcher kamu") } }
+        item {
+            Reveal(1) {
+                Panel {
+                    Box(
+                        Modifier.fillMaxWidth().height(90.dp).background(Ink.Raised, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(account?.displayName?.take(1)?.uppercase() ?: "I", color = Ink.White, fontWeight = FontWeight.ExtraBold, fontSize = 38.sp)
+                    }
+                    Text(account?.displayName ?: "IMZYY USER", color = Ink.White, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+                    Text("@${account?.username ?: "local"}", color = Ink.Sub, fontSize = 13.sp)
+                    Chip("AKUN AKTIF DI PERANGKAT INI", true, compact = true) {}
+                }
+            }
+        }
+        item {
+            Reveal(2) {
+                Panel {
+                    Text("KEAMANAN & PENYIMPANAN", color = Ink.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Password disimpan sebagai hash PBKDF2 bersalt di penyimpanan privat aplikasi, bukan sebagai teks biasa. Akun ini bersifat lokal: belum ada sinkronisasi cloud, reset password email, atau login lintas perangkat.",
+                        color = Ink.Sub, fontSize = 12.sp,
+                    )
+                    Text(
+                        "Akun IMZYY hanya mengelola akses ke launcher dan skin lokal. Ini bukan akun Minecraft dan tidak menerbitkan token untuk server online.",
+                        color = Ink.Sub, fontSize = 12.sp,
+                    )
+                    InkButton("KELUAR DARI AKUN", onLogout, filled = false)
+                }
+            }
+        }
+    }
+}
+

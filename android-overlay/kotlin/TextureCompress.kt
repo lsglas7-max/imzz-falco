@@ -147,6 +147,38 @@ object TextureCompress {
         return Result(changed, before, dest.length())
     }
 
+    const val QUIET_PACK = "IMZYY-Quiet.zip"
+
+    /**
+     * Sodium (0.5.x) prints a red "PojavLauncher is not supported" console message on every start because it sees
+     * the POJAV_* environment this engine needs. The game still runs; this tiny lang-only pack blanks that one
+     * message. Returns true when the pack was (re)enabled, false when the instance has no Sodium.
+     */
+    fun quietSodium(ctx: Context, instance: File, version: String): Boolean {
+        val hasSodium = File(instance, "mods").listFiles()?.any { it.isFile && it.name.endsWith(".jar") && it.name.contains("sodium", true) } == true
+        if (!hasSodium) return false
+        val packs = File(instance, "resourcepacks")
+        packs.mkdirs()
+        val dest = File(packs, QUIET_PACK)
+        if (!dest.exists()) {
+            val fmt = findClientJar(ctx, instance, version)?.let { jar ->
+                try { ZipFile(jar).use { packFormat(it) } } catch (_: Exception) { null }
+            } ?: 34
+            val tmp = File(packs, QUIET_PACK + ".part")
+            ZipOutputStream(tmp.outputStream().buffered()).use { out ->
+                out.putNextEntry(ZipEntry("pack.mcmeta"))
+                out.write(("{\"pack\":{\"pack_format\":" + fmt + ",\"description\":\"IMZYY: hide Sodium launcher warning\"}}").toByteArray(Charsets.UTF_8))
+                out.closeEntry()
+                out.putNextEntry(ZipEntry("assets/sodium/lang/en_us.json"))
+                out.write("{\"sodium.console.pojav_launcher\":\"\"}".toByteArray(Charsets.UTF_8))
+                out.closeEntry()
+            }
+            if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true); tmp.delete() }
+        }
+        enablePack(instance, dest.name)
+        return true
+    }
+
     /** Adds "file/<name>" to resourcePacks in options.txt (keeps existing entries). */
     fun enablePack(instance: File, fileName: String) {
         val f = File(instance, "options.txt")

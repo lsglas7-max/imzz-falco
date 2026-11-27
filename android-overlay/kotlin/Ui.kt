@@ -40,6 +40,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,7 +65,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -223,7 +225,32 @@ fun InkField(value: String, onChange: (String) -> Unit, hint: String, modifier: 
             value = value,
             onValueChange = onChange,
             singleLine = true,
-            textStyle = TextStyle(color = Ink.Text, fontSize = 14.sp, fontFamily = FontFamily.SansSerif),
+            textStyle = TextStyle(color = Ink.Text, fontSize = 14.sp, fontFamily = ImzyyFonts.family),
+            cursorBrush = SolidColor(Ink.White),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+fun InkPasswordField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Ink.Raised)
+            .border(1.dp, Ink.Line, shape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        if (value.isEmpty()) Text(hint, color = Ink.Sub, fontSize = 14.sp)
+        BasicTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            textStyle = TextStyle(color = Ink.Text, fontSize = 14.sp, fontFamily = ImzyyFonts.family),
             cursorBrush = SolidColor(Ink.White),
             modifier = Modifier.fillMaxWidth(),
         )

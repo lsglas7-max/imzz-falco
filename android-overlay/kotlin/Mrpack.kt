@@ -101,6 +101,9 @@ object Mrpack {
 
     const val PENDING = ".imzyy-pending"
 
+    /** Player settings a modpack must not overwrite (its options.txt would reset language, keybinds, graphics...). */
+    val KEEP = setOf("options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat")
+
     /**
      * Moves a staged modpack (see in-game MODS) into the instance. Only call while the game process is NOT running:
      * replacing mod jars under a live JVM crashes it. Returns the number of files applied.
@@ -110,7 +113,12 @@ object Mrpack {
         if (!src.isDirectory) return 0
         var n = 0
         src.walkTopDown().filter { it.isFile }.toList().forEach { f ->
-            val dest = File(instance, f.relativeTo(src).path)
+            val rel = f.relativeTo(src).path
+            val dest = File(instance, rel)
+            if (rel in KEEP && dest.exists()) {
+                f.delete()
+                return@forEach
+            }
             dest.parentFile?.mkdirs()
             if (dest.exists()) dest.delete()
             if (!f.renameTo(dest)) {
@@ -166,9 +174,11 @@ object Mrpack {
                     }
                     if (rel != null && !e.isDirectory && rel.isNotEmpty()) {
                         val dest = safeFile(root, rel)
-                        dest.parentFile?.mkdirs()
-                        FileOutputStream(dest).use { out -> zin.copyTo(out) }
-                        copied++
+                        if (!(rel in KEEP && dest.exists())) {
+                            dest.parentFile?.mkdirs()
+                            FileOutputStream(dest).use { out -> zin.copyTo(out) }
+                            copied++
+                        }
                     }
                     e = zin.nextEntry
                 }

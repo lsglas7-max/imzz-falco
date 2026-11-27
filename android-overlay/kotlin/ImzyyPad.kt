@@ -810,7 +810,16 @@ class ModsPanel(private val act: MinecraftActivity) {
                         .firstOrNull { info.deps.containsKey(it.first) }?.second
                     if (packLoader != null && packLoader != meta.loaderType) error("Modpack butuh loader $packLoader, instance ini ${meta.loaderType ?: "vanilla"}")
                     // Staged: files are copied into a side folder so the running JVM's mod jars are never touched.
-                    Mrpack.install(act, uri, info, File(dir, Mrpack.PENDING), { s -> say(s) }, { p -> progress(0.15f + p * 0.85f) })
+                    val staged = File(dir, Mrpack.PENDING)
+                    Mrpack.install(act, uri, info, staged, { s -> say(s) }, { p -> progress(0.15f + p * 0.8f) })
+                    try {
+                        // Most packs ship no Mod Menu, so the title screen has no "Mods" button. Add it (Fabric only).
+                        if (Modrinth.ensureModMenu(listOf(File(dir, "mods"), File(staged, "mods")), File(staged, "mods"), mc, loader) { s -> say(s) }) {
+                            say("✓ Mod Menu ditambahkan (tombol Mods di layar utama)")
+                        }
+                    } catch (e: Exception) {
+                        say("Mod Menu dilewati: ${e.message ?: e.javaClass.simpleName}")
+                    }
                     say("✓ ${info.name} siap. Tekan RESTART GAME: modpack diterapkan lalu game dibuka lagi otomatis.")
                 } finally {
                     tmp.delete()

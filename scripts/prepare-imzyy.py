@@ -767,7 +767,7 @@ def main() -> int:
     patch_root_branding(root)
     # Keep upstream Android namespace/applicationId intact until the Microsoft
     # OAuth redirect URI has been independently reconfigured and tested.
-    print("IMZYY XL monochrome UI, Hub (Boost/Mods/.mrpack import), typography and device-capped performance profiles applied (ARM64 upstream engine retained).")
+    print("IMZYY XL monochrome UI, local IMZYY login, local PNG skin studio, Hub (Boost/Mods/.mrpack import), typography and device-capped performance profiles applied (ARM64 upstream engine retained).")
     return 0
 
 if __name__ == "__main__":
