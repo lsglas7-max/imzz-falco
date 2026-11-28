@@ -158,8 +158,8 @@ fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
 
 @Composable
 fun Chip(text: String, selected: Boolean, compact: Boolean = false, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (selected) Ink.White else Color(0x1AFFFFFF), tween(220), label = "chipbg")
-    val fg by animateColorAsState(if (selected) Ink.Black else Ink.Sub, tween(220), label = "chipfg")
+    val bg by animateColorAsState(if (selected) Ink.White else Color(0x1AFFFFFF), tween(ImzyyFramePacing.durationMs(220)), label = "chipbg")
+    val fg by animateColorAsState(if (selected) Ink.Black else Ink.Sub, tween(ImzyyFramePacing.durationMs(220)), label = "chipfg")
     val shape = RoundedCornerShape(50)
     Pressable(onClick = onClick) {
         Box(
@@ -185,7 +185,7 @@ fun Reveal(index: Int, content: @Composable () -> Unit) {
     val a = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         delay(minOf(index, 4) * 40L)
-        a.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+        a.animateTo(1f, tween(ImzyyFramePacing.durationMs(320), easing = FastOutSlowInEasing))
     }
     Box(
         Modifier.graphicsLayer {
@@ -197,7 +197,7 @@ fun Reveal(index: Int, content: @Composable () -> Unit) {
 
 @Composable
 fun InkProgress(fraction: Float) {
-    val f by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(250), label = "progress")
+    val f by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(ImzyyFramePacing.durationMs(250)), label = "progress")
     Box(
         Modifier
             .fillMaxWidth()
@@ -326,7 +326,7 @@ fun ShimmerTitle(text: String, sizeSp: Int = 36) {
     val x = remember { Animatable(-300f) }
     LaunchedEffect(Unit) {
         delay(200)
-        x.animateTo(1000f, tween(1000, easing = FastOutSlowInEasing))
+        x.animateTo(1000f, tween(ImzyyFramePacing.durationMs(1000), easing = FastOutSlowInEasing))
         done = true
     }
     val base = TextStyle(fontSize = sizeSp.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.5.sp)

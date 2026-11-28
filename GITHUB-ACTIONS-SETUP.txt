@@ -9,3 +9,12 @@ IMZYY XL Lite (ARM64)
 The full (big) build is manual only: Actions > "Build IMZYY XL Launcher (ARM64)" > Run workflow.
 
 5. The LUNA AI tab (Luna Sixty) is included in the launcher. Its diagnostic upload runs only after the user taps the analysis button.
+
+Termux (run from the project repository root):
+  python3 scripts/test-integration.py
+  bash -n scripts/build-imzyy.sh scripts/github-setup.sh scripts/trigger-github-run.sh
+  git add -A
+  git commit -m "IMZYY XL Launcher: adaptive portrait UI, refresh-aware animations, heavy-mod FPS and texture optimization"
+  git push -u origin "$(git branch --show-current)"
+
+Push to main/master to trigger the Lite workflow automatically, or use Actions > Build IMZYY XL LITE (ARM64) > Run workflow.

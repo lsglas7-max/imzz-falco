@@ -54,6 +54,49 @@ object FpsTuner {
     private fun current(instance: File, key: String): String? =
         File(instance, "options.txt").takeIf { it.exists() }?.readLines()?.firstOrNull { it.startsWith("$key:") }?.substringAfter(':')
 
+    /** Number of installed client mods, including common nested mod folders. */
+    fun installedModCount(instance: File): Int {
+        val mods = File(instance, "mods")
+        if (!mods.isDirectory) return 0
+        return runCatching {
+            mods.walkTopDown().maxDepth(3).count { it.isFile && it.name.endsWith(".jar", ignoreCase = true) }
+        }.getOrDefault(0)
+    }
+
+    /**
+     * Adaptive anti-stutter values. 100+ mod JARs receive a more conservative frame cap
+     * and shorter view distance. Existing lower distances / FPS caps are preserved.
+     */
+    fun smoothValues(instance: File, tier: Int, modCount: Int, refreshRateHz: Float): List<Pair<String, String>> {
+        val heavy = modCount >= 100
+        val refreshCap = refreshRateHz.takeIf { it.isFinite() && it >= 30f }?.toInt()?.coerceIn(30, 120) ?: 60
+        val fpsCap = when {
+            heavy -> when (tier) { 0 -> 30; 1 -> 45; else -> 60 }
+            tier <= 0 -> 45
+            tier == 1 -> 60
+            else -> refreshCap.coerceIn(60, 120)
+        }
+        val renderCap = when {
+            heavy -> when (tier) { 0 -> 4; 1 -> 5; else -> 6 }
+            tier <= 0 -> 5
+            tier == 1 -> 7
+            else -> 10
+        }
+        val simulationCap = (renderCap - if (heavy) 1 else 2).coerceAtLeast(4)
+        fun lowered(key: String, cap: Int): String {
+            val existing = current(instance, key)?.trim()?.toIntOrNull()
+            return (existing?.coerceAtMost(cap) ?: cap).toString()
+        }
+        val preserved = SMOOTH.filterNot { it.first in setOf("maxFps", "renderDistance", "simulationDistance") }
+        val existingFps = current(instance, "maxFps")?.trim()?.toIntOrNull()
+        val finalFps = (existingFps?.coerceAtMost(fpsCap) ?: fpsCap).coerceAtLeast(15)
+        return preserved + listOf(
+            "renderDistance" to lowered("renderDistance", renderCap),
+            "simulationDistance" to lowered("simulationDistance", simulationCap),
+            "maxFps" to finalFps.toString(),
+        )
+    }
+
     /**
      * Cheaper world join: fewer chunks to build/simulate at once, no chunk-update stalls.
      * Distances are only ever lowered (a value the user already set lower is kept). tier: 0 low, 1 mid, 2 flagship.

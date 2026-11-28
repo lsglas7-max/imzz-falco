@@ -1,5 +1,16 @@
 # IMZYY XL Launcher — Premium Android ARM64 Edition (v3)
 
+
+## v10.1.5: adaptive display, smoother motion and heavy-mod FPS mode
+
+- The IMZYY Hub opens in **portrait orientation**. The embedded Minecraft activity keeps the upstream orientation and renderer ownership.
+- Launcher Compose animations use the active display refresh rate as a window preference and quantize tween durations to whole display frames. Android still controls actual presentation timing; this is not a promise of a fixed FPS.
+- The Anti drop FPS toggle now detects the number of mod JARs in the selected instance. At 100+ JARs it applies a more conservative frame cap and render/simulation distance based on the device RAM tier, and recounts after pending `.mrpack` files are applied during PLAY. With fewer mods (including vanilla), it uses a less restrictive tier/display-aware cap. Existing lower FPS/distance choices are preserved.
+- Texture compression now decodes images at reduced resolution directly, avoiding the extra full-size bitmap plus scaled bitmap allocation. Animated texture files with `.mcmeta` remain excluded.
+- GitHub Actions validates Python and shell syntax, checks the committed diff for whitespace errors, and includes the overlay and Gradle wrapper files in the Gradle cache key before the patcher/build steps.
+
+FPS and compatibility still depend on the exact device, thermal limits, GPU driver, Minecraft version, renderer and mod mix. No launcher-side toggle can guarantee zero in-game bugs or stable performance for every 100+ modpack; Safe Boot and the existing recovery tools remain available when a mod conflicts.
+
 IMZYY XL Launcher is a single Android application for **Minecraft: Java Edition**. The project embeds the complete upstream JVM/native launch stack and Minecraft game activity in the same APK. Users install and open **IMZYY XL Launcher only**; there is no second launcher APK to install or hand off to. The game activity runs as an isolated process inside the same Android application for stability, not as another launcher app.
 
 ## What is inside

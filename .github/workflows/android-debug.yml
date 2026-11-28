@@ -44,7 +44,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/scripts/**') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/scripts/**', '**/android-overlay/**', '**/*.gradle', '**/*.gradle.kts', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Set up Android SDK
@@ -60,6 +60,16 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+
+      - name: Validate scripts and committed source
+        working-directory: ${{ steps.loc.outputs.dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/prepare-imzyy.py scripts/test-integration.py
+          rm -rf scripts/__pycache__
+          bash -n scripts/build-imzyy.sh scripts/github-setup.sh scripts/trigger-github-run.sh
+          git show --check --oneline HEAD
 
       - name: Test IMZYY patcher
         working-directory: ${{ steps.loc.outputs.dir }}

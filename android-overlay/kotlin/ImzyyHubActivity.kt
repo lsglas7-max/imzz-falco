@@ -67,6 +67,7 @@ import org.json.JSONObject
 class ImzyyHubActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ImzyyFramePacing.syncToDisplay(window, this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
@@ -75,6 +76,12 @@ class ImzyyHubActivity : ComponentActivity() {
         ImzyyWindow.install(application)
         setContent { ProvideTextStyle(TextStyle(fontFamily = ImzyyFonts.family)) { HubApp() } }
         handleRelaunch(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-read the active display mode after returning from settings or another app.
+        ImzyyFramePacing.syncToDisplay(window, this)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -389,9 +396,13 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         smooth = on
         prefs.edit().putBoolean("smooth", on).apply()
         if (on) runJob {
-            val n = FpsTuner.applyValues(needTarget(), FpsTuner.SMOOTH)
-            say("✓ Anti drop FPS & stutter aktif ($n opsi). Dipasang ulang otomatis tiap PLAY.")
-        } else say("Anti drop FPS & stutter dimatikan. Pakai KEMBALIKAN OPTIONS ASLI jika mau membatalkan opsi yang sudah ditulis.")
+            val dir = needTarget()
+            val count = FpsTuner.installedModCount(dir)
+            val values = FpsTuner.smoothValues(dir, tier, count, ImzyyFramePacing.refreshRateHz)
+            val n = FpsTuner.applyValues(dir, values)
+            val mode = if (count >= 100) "mode mod berat ($count JAR)" else "$count JAR mod"
+            say("✓ Anti drop FPS aktif: $n opsi, $mode, target ${values.firstOrNull { it.first == "maxFps" }?.second ?: "60"} FPS. Diterapkan ulang tiap PLAY.")
+        } else say("Anti drop FPS & stutter dimatikan. Pengaturan yang sudah tertulis tetap ada; gunakan KEMBALIKAN OPTIONS ASLI untuk memulihkan backup.")
     }
 
     fun switchAntiLag(on: Boolean) {
@@ -504,7 +515,7 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     /** Blocking (worker thread). Verifies the selected instance's asset objects and re-downloads what is missing. */
-    private fun assetJob(): AssetRepair.Report? {
+    private fun assetJob(applyAdaptiveSmooth: Boolean = false): AssetRepair.Report? {
         val m = meta ?: return null
         val instanceDir = InstanceManager.instanceDir(ctx, m.id)
         val pending = File(File(instanceDir, Mrpack.PENDING), ".imzyy-ready")
@@ -513,6 +524,15 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
         }
         val appliedMods = Mrpack.applyPending(instanceDir)
         if (appliedMods > 0) say("✓ Modpack tertunda diterapkan ($appliedMods file); mod lama dicadangkan di .imzyy-backups")
+        // Recount after pending modpack application so the first launch of a 100+ modpack
+        // receives the heavy-mod profile, not a profile based on the previous mods/ folder.
+        if (applyAdaptiveSmooth) {
+            val count = FpsTuner.installedModCount(instanceDir)
+            val values = FpsTuner.smoothValues(instanceDir, tier, count, ImzyyFramePacing.refreshRateHz)
+            val changed = FpsTuner.applyValues(instanceDir, values)
+            val targetFps = values.firstOrNull { it.first == "maxFps" }?.second ?: "60"
+            say("✓ Profil stabil pasca-modpack: $changed opsi, $count JAR mod, batas $targetFps FPS")
+        }
         runCatching { TextureCompress.quietSodium(ctx, instanceDir, m.mcVersion) }
         runCatching {
             if (ImzyySkinManager.applyToInstance(ctx, InstanceManager.instanceDir(ctx, m.id), m.mcVersion)) {
@@ -574,18 +594,26 @@ class HubState(val ctx: Context, val scope: CoroutineScope) {
     }
 
     fun play() {
-        if (smooth) runCatching { meta?.let { FpsTuner.applyValues(InstanceManager.instanceDir(ctx, it.id), FpsTuner.SMOOTH) } }
+        // Apply the one-time Lite baseline first; active user toggles then take precedence.
+        liteAutoTune()
         if (antiLag) runCatching { meta?.let { FpsTuner.applyValues(InstanceManager.instanceDir(ctx, it.id), FpsTuner.lagValues(tier)) } }
         if (joinLag) runCatching { meta?.let { val d = InstanceManager.instanceDir(ctx, it.id); FpsTuner.applyValues(d, FpsTuner.joinValues(d, tier)) } }
-        liteAutoTune()
+        if (smooth) runCatching {
+            meta?.let {
+                val dir = InstanceManager.instanceDir(ctx, it.id)
+                val mods = FpsTuner.installedModCount(dir)
+                FpsTuner.applyValues(dir, FpsTuner.smoothValues(dir, tier, mods, ImzyyFramePacing.refreshRateHz))
+            }
+        }
         if (meta == null || busy) { openLauncher(); return }
         busy = true
         progress = 0f
+        val adaptiveSmooth = smooth
         scope.launch {
             var block = false
             var prepFailed = false
             try {
-                val r = withContext(Dispatchers.IO) { assetJob() }
+                val r = withContext(Dispatchers.IO) { assetJob(applyAdaptiveSmooth = adaptiveSmooth) }
                 block = r != null && r.failed > 0
                 if (!block) {
                     val scan = withContext(Dispatchers.IO) { RecoveryTools.scanMods(needTarget()) }
@@ -632,7 +660,7 @@ fun HubApp() {
         AnimatedBackdrop()
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
             Box(Modifier.weight(1f)) {
-                Crossfade(targetState = s.tab, animationSpec = tween(280), label = "tab") { t ->
+                Crossfade(targetState = s.tab, animationSpec = tween(ImzyyFramePacing.durationMs(280)), label = "tab") { t ->
                     when (t) {
                         0 -> HomeTab(s)
                         1 -> BoostTab(s)
@@ -874,7 +902,7 @@ private fun BoostTab(s: HubState) {
             Reveal(5) {
                 Panel {
                     Text("Anti drop FPS & stutter", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Kunci FPS stabil, matikan vsync, ringankan update chunk & biome blend. Dipasang ulang otomatis setiap kamu tekan PLAY.", color = Ink.Sub, fontSize = 12.sp)
+                    Text("Profil adaptif untuk vanilla maupun modpack: jumlah JAR dihitung otomatis; 100+ mod memakai batas FPS dan jarak render lebih konservatif. Profil dihitung ulang setelah modpack diterapkan dan setiap kamu tekan PLAY.", color = Ink.Sub, fontSize = 12.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Chip("AKTIF", s.smooth) { s.switchSmooth(true) }
                         Chip("MATI", !s.smooth) { s.switchSmooth(false) }
@@ -931,7 +959,7 @@ private fun BoostTab(s: HubState) {
             Reveal(6) {
                 Panel {
                     Text("Kompres tekstur", color = Ink.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Memperkecil PNG jadi setengah sisi (memori tekstur sekitar 4x lebih kecil). Pack di folder resourcepacks dikompres; kalau kosong dibuat pack ringan dari Minecraft vanilla. Animasi tidak disentuh.", color = Ink.Sub, fontSize = 12.sp)
+                    Text("Memperkecil PNG secara hemat memori (decode langsung pada resolusi lebih kecil, tanpa membuat bitmap penuh ganda). Pack di resourcepacks dikompres; kalau kosong dibuat pack ringan dari Minecraft vanilla. Tekstur animasi .png.mcmeta tidak disentuh.", color = Ink.Sub, fontSize = 12.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextureCompress.LEVEL_NAMES.forEachIndexed { i, n -> Chip(n, s.texLevel == i) { s.texLevel = i } }
                     }

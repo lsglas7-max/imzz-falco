@@ -33,14 +33,26 @@ object TextureCompress {
         val w = opts.outWidth
         val h = opts.outHeight
         if (w < minSide || h < minSide || w < 2 || h < 2) return null
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        val small = Bitmap.createScaledBitmap(bmp, w / 2, h / 2, true)
-        val out = ByteArrayOutputStream()
-        small.compress(Bitmap.CompressFormat.PNG, 100, out)
-        if (small !== bmp) small.recycle()
-        bmp.recycle()
-        val res = out.toByteArray()
-        return if (res.size < bytes.size) res else null
+        // Decode at half resolution directly instead of allocating a full-size Bitmap and
+        // a second scaled copy. Very large pack textures are sampled further to cap memory use.
+        var sample = 2
+        while ((w.toLong() / sample) * (h.toLong() / sample) > 12_000_000L && sample < 16) {
+            sample *= 2
+        }
+        val decode = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inScaled = false
+        }
+        val reduced = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decode) ?: return null
+        try {
+            val out = ByteArrayOutputStream()
+            if (!reduced.compress(Bitmap.CompressFormat.PNG, 100, out)) return null
+            val result = out.toByteArray()
+            return if (result.size < bytes.size) result else null
+        } finally {
+            reduced.recycle()
+        }
     }
 
     private fun safe(name: String) = !name.contains("..") && !name.startsWith("/")

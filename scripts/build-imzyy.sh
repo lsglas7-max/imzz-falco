@@ -74,7 +74,7 @@ PY
     "$ENGINE_URL" "$ENGINE_REF" "$commit" "$OUTPUT_DIR/$APK_NAME" > "$OUTPUT_DIR/BUILD-INFO.txt"
   # Preserve the exact patched corresponding source for AGPL source availability.
   tar --exclude='.git' --exclude='*/build' --exclude='.gradle' -czf "$OUTPUT_DIR/IMZYY-XL-Launcher-corresponding-source.tar.gz" -C "$(dirname "$ENGINE_DIR")" "$(basename "$ENGINE_DIR")" -C "$ROOT" scripts/prepare-imzyy.py THIRD_PARTY_NOTICES.md LICENSE
-  printf 'UI: IMZYY XL premium dark UI + bold typography\nPerformance: FPS / Balanced / Visual device-capped profiles\nPackaging: one Android application APK; game activity is embedded\n' >> "$OUTPUT_DIR/BUILD-INFO.txt"
+  printf 'UI: IMZYY XL portrait Hub + refresh-aware frame-quantized motion\nPerformance: device-capped profiles + adaptive stable-FPS mode (100+ mod JARs)\nTextures: memory-aware PNG downsampling; animated textures preserved\nPackaging: one Android application APK; game activity is embedded\n' >> "$OUTPUT_DIR/BUILD-INFO.txt"
   echo "Built IMZYY XL ARM64 debug APK: $OUTPUT_DIR/$APK_NAME ($(du -h "$OUTPUT_DIR/$APK_NAME" | cut -f1))"
 }
 

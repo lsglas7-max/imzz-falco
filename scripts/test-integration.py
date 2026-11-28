@@ -198,9 +198,18 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         assert "ImzyyBootGuard.onGameCreated(a)" in window_hook
         assert "setDecorFitsSystemWindows" not in window_hook
         assert "layoutInDisplayCutoutMode" not in window_hook
-        assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "SMOOTH" in (hub_dir / "FpsTuner.kt").read_text()
+        assert "switchSmooth" in (hub_dir / "ImzyyHubActivity.kt").read_text() and "smoothValues" in (hub_dir / "FpsTuner.kt").read_text()
+        assert "installedModCount" in (hub_dir / "FpsTuner.kt").read_text()
+        assert "assetJob(applyAdaptiveSmooth: Boolean = false)" in (hub_dir / "ImzyyHubActivity.kt").read_text()
+        assert "assetJob(applyAdaptiveSmooth = adaptiveSmooth)" in (hub_dir / "ImzyyHubActivity.kt").read_text()
+        assert "Recount after pending modpack application" in (hub_dir / "ImzyyHubActivity.kt").read_text()
+        assert "Profil adaptif untuk vanilla maupun modpack" in (hub_dir / "ImzyyHubActivity.kt").read_text()
+        texture_source = (hub_dir / "TextureCompress.kt").read_text()
+        assert "inSampleSize = sample" in texture_source and "createScaledBitmap" not in texture_source
+        assert "ImzyyFramePacing.syncToDisplay" in (hub_dir / "ImzyyHubActivity.kt").read_text()
+        assert "ImzyyFramePacing.durationMs" in (hub_dir / "Ui.kt").read_text()
         assert "liteAutoTune()" in (hub_dir / "ImzyyHubActivity.kt").read_text()
-        for name in ("ImzyyHubActivity.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt", "RecoveryTools.kt", "LunaSixty.kt"):
+        for name in ("ImzyyHubActivity.kt", "ImzyyFramePacing.kt", "Ui.kt", "Modrinth.kt", "PerfPack.kt", "Mrpack.kt", "FpsTuner.kt", "Net.kt", "ImzyyConfig.kt", "ImzyyControls.kt", "ImzyyRuntimes.kt", "ModImport.kt", "TextureCompress.kt", "ImzyyWindow.kt", "ImzyyFonts.kt", "ImzyyPad.kt", "ImzyyInput.kt", "ImzyyInitProvider.kt", "ImzyyAccountStore.kt", "ImzyySkinManager.kt", "GraphicsRepair.kt", "RecoveryTools.kt", "LunaSixty.kt"):
             assert (hub_dir / name).is_file(), name
         hub_source = (hub_dir / "ImzyyHubActivity.kt").read_text()
         account_source = (hub_dir / "ImzyyAccountStore.kt").read_text()
@@ -220,6 +229,8 @@ Button(colors = ButtonDefaults.buttonColors(containerColor = BgBorder)) { Text("
         provs = [(p.get("{http://schemas.android.com/apk/res/android}name"), p.get("{http://schemas.android.com/apk/res/android}process")) for p in man.find("application").findall("provider")]
         assert provs == [("id.imzyy.xl.ImzyyInitProvider", ":minecraft")], provs
         assert launchers == ["id.imzyy.xl.ImzyyHubActivity"], launchers
+        hub_activity = next(a for a in acts if a.get(ANDROID + "name") == "id.imzyy.xl.ImzyyHubActivity")
+        assert hub_activity.get(ANDROID + "screenOrientation") == "portrait", hub_activity.attrib
         assert sum(1 for a in acts if a.get(ANDROID + "name") == ".presentation.MinecraftActivity") == 1
         assert sum(1 for a in acts if a.get(ANDROID + "name") == ".presentation.MainActivity") == 1
         gradle = (app / "build.gradle.kts").read_text()

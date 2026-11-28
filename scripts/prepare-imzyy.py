@@ -714,6 +714,12 @@ def install_hub(app: Path, repo: str, version: str, variant: str = "full", runti
         flt = ET.SubElement(hub, "intent-filter")
         ET.SubElement(flt, "action").set(name_attr, "android.intent.action.MAIN")
         ET.SubElement(flt, "category").set(name_attr, "android.intent.category.LAUNCHER")
+    # Keep the launcher dashboard in portrait; the embedded Minecraft activity retains
+    # the upstream orientation policy so renderer/input geometry is not overridden.
+    hub_activity = next((a for a in application.findall("activity") if a.get(name_attr) == hub_name), None)
+    if hub_activity is None:
+        raise RuntimeError("IMZYY Hub activity tidak ditemukan setelah injeksi")
+    hub_activity.set(f"{{{ANDROID}}}screenOrientation", "portrait")
     prov_name = "id.imzyy.xl.ImzyyInitProvider"
     if not any(p.get(name_attr) == prov_name for p in application.findall("provider")):
         game_process = None
