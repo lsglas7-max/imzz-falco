@@ -1356,4 +1356,3 @@ private fun AccountTab(s: HubState, onLogout: () -> Unit) {
         }
     }
 }
-

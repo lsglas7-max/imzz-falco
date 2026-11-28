@@ -2135,7 +2135,7 @@ public class FloatingService extends Service {
         LinearLayout acts = row();
         ibtn(acts, IconView.PLAY, "REFRESH", true, this::reloadApps);
         if (runningMode) ibtn(acts, IconView.STOP, "STOP SEMUA", false, this::stopAll);
-        
+
         ibtn(acts, IconView.CLOSE, "BATAL", false, () -> CleanerService.cancel());
         c.addView(acts, mt(6));
         c.addView(title("LOG"), mt(6));
@@ -3194,7 +3194,7 @@ public class FloatingService extends Service {
 
 
 
-    
+
     private void pageBatteryManager() {
         LinearLayout c = newPage();
         c.addView(title("BATTERY • GAME PROFILE"), mt(0));
@@ -3233,7 +3233,7 @@ public class FloatingService extends Service {
 
 
 
-    
+
     private void pageSidebarSwipe() {
         LinearLayout c = newPage();
         c.addView(title("SIDEBAR / SWIPE BUTTON"), mt(0));
@@ -3277,7 +3277,7 @@ public class FloatingService extends Service {
 
 
 
-    
+
     private void antiKill() {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm.isIgnoringBatteryOptimizations(getPackageName())) { status("Sudah kebal hemat baterai • hub tidak mudah dimatikan", OK); return; }
@@ -3337,7 +3337,7 @@ public class FloatingService extends Service {
     }
 
 
-    
+
     private void enableCleaner(boolean force) {
         AccessibilityGuard.markWanted(this, true);
         if (CleanerService.enableViaSecure(this)) { status("IMZYY Cleaner diaktifkan langsung • tap aksinya lagi", OK); return; }
@@ -3349,7 +3349,7 @@ public class FloatingService extends Service {
 
 
 
-    
+
     private void pageGamePicker() {
         if (content == null) return;
         stopLive();
